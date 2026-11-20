@@ -23,6 +23,10 @@ class AppServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
-        //
+        // Web installer: before installation, make sure .env/APP_KEY exist and keep
+        // sessions, cache and queue off the (not yet configured) database.
+        if (! $this->app->runningInConsole() && ! \App\Support\Installer\Installer::isInstalled()) {
+            \App\Support\Installer\Installer::prepareRuntime();
+        }
     }
 }

@@ -22,6 +22,16 @@ class Localize
 
     public function handle(Request $request, Closure $next): Response
     {
+        // The installer runs before any database or currencies exist.
+        if (! \App\Support\Installer\Installer::isInstalled()) {
+            app()->instance('locale.timezone', 'UTC');
+            app()->instance('locale.currency', 'USD');
+            View::share('localeTimezone', 'UTC');
+            View::share('localeCurrency', 'USD');
+
+            return $next($request);
+        }
+
         $session = $request->session();
         $user = $request->user();
 

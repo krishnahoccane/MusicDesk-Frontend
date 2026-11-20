@@ -1,4 +1,13 @@
 <x-layouts.auth title="Sign in">
+    @if (request()->boolean('installed'))
+        <div class="mb-6 rounded-xl border border-mint-500/25 bg-mint-500/[0.07] p-4 text-sm text-mint-400" role="status">
+            <div class="font-medium">Installation complete.</div>
+            <div class="mt-1 text-ink-300">Sign in with your super admin account to open the admin dashboard. Next: add your payment gateway keys and set up the daily scheduler (<span class="font-mono">php artisan schedule:run</span> every minute).</div>
+            @unless (is_link(public_path('storage')) || is_dir(public_path('storage')))
+                <div class="mt-1 text-amber-glow">Uploaded logos need a storage link: run <span class="font-mono">php artisan storage:link</span>.</div>
+            @endunless
+        </div>
+    @endif
     <h1 class="display text-3xl">Customer portal</h1>
     <p class="mt-2 text-sm text-ink-400">Log in to manage your licenses, downloads and invoices.</p>
 

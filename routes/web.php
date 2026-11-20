@@ -130,3 +130,18 @@ Route::middleware(['auth', 'admin'])->prefix('admin')->name('admin.')->group(fun
     Route::post('/orders/{order}/resolve', [Admin\OrderAdminController::class, 'resolveFlag'])->name('orders.resolve');
     Route::get('/invoices', [Admin\OrderAdminController::class, 'invoices'])->name('invoices');
 });
+
+/*
+|--------------------------------------------------------------------------
+| Web installer (only reachable until installation finishes; see RequireInstallation)
+|--------------------------------------------------------------------------
+*/
+Route::prefix('install')->name('install.')->middleware('throttle:60,1')->group(function () {
+    Route::get('/', [\App\Http\Controllers\InstallController::class, 'index'])->name('index');
+    Route::get('/{step}', [\App\Http\Controllers\InstallController::class, 'show'])->whereIn('step', ['requirements', 'database', 'redis', 'mail', 'admin'])->name('step');
+    Route::post('/requirements', [\App\Http\Controllers\InstallController::class, 'requirements'])->name('requirements');
+    Route::post('/database', [\App\Http\Controllers\InstallController::class, 'database'])->name('database');
+    Route::post('/redis', [\App\Http\Controllers\InstallController::class, 'redis'])->name('redis');
+    Route::post('/mail', [\App\Http\Controllers\InstallController::class, 'mail'])->name('mail');
+    Route::post('/admin', [\App\Http\Controllers\InstallController::class, 'admin'])->name('admin');
+});

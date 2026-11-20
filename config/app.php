@@ -16,6 +16,12 @@ return [
     'name' => env('APP_NAME', 'Laravel'),
 
     /*
+    | Web installer: null = installed once storage/app/installed.json exists.
+    | true/false forces it (tests use true).
+    */
+    'installed' => env('APP_INSTALLED'),
+
+    /*
     |--------------------------------------------------------------------------
     | Application Environment
     |--------------------------------------------------------------------------
