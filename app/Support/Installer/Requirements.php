@@ -11,7 +11,7 @@ class Requirements
     public const EXTENSIONS = [
         'bcmath' => 'Money and currency maths',
         'ctype' => 'Laravel core',
-        'curl' => 'Payment gateways, exchange rates, billing.twsd.me',
+        'curl' => 'Payment gateways, exchange rates, geo-IP',
         'dom' => 'Invoice PDFs',
         'fileinfo' => 'Logo and image uploads',
         'filter' => 'Laravel core',

@@ -35,6 +35,12 @@ Route::get('/checkout/{plan}', [CheckoutController::class, 'show'])->name('check
 Route::post('/checkout/{plan}/quote', [CheckoutController::class, 'quote'])->name('checkout.quote');
 Route::post('/checkout/{plan}', [CheckoutController::class, 'store'])->middleware('throttle:10,1')->name('checkout.store');
 
+Route::middleware('auth')->prefix('dashboard/licenses/{license}/buy/{kind}')->name('licenses.')->whereIn('kind', ['renewal', 'updates_renewal', 'extra_domains', 'change_plan', 'convert_lifetime'])->group(function () {
+    Route::get('/', [CheckoutController::class, 'licenseShow'])->name('buy');
+    Route::post('/quote', [CheckoutController::class, 'licenseQuote'])->name('buy.quote');
+    Route::post('/', [CheckoutController::class, 'licenseStore'])->middleware('throttle:10,1')->name('buy.store');
+});
+
 Route::middleware('auth')->prefix('orders/{order:number}')->name('checkout.')->group(function () {
     Route::get('/', [CheckoutController::class, 'complete'])->name('complete');
     Route::post('/pay', [CheckoutController::class, 'pay'])->name('pay');
@@ -49,8 +55,6 @@ Route::middleware('auth')->prefix('orders/{order:number}')->name('checkout.')->g
 |--------------------------------------------------------------------------
 */
 Route::post('/webhooks/payments/{gateway}', [WebhookController::class, 'gateway'])->name('webhooks.gateway');
-Route::post('/webhooks/wcc', [WebhookController::class, 'wcc'])->name('webhooks.wcc');
-Route::get('/invoices/{invoice}/signed.pdf', [PortalController::class, 'invoiceSigned'])->middleware('signed')->name('invoices.signed');
 
 /*
 |--------------------------------------------------------------------------
@@ -80,8 +84,11 @@ Route::middleware('auth')->prefix('dashboard')->name('dashboard')->group(functio
         Route::post('/domains/{activation}/move', [LicenseActionController::class, 'moveDomain'])->name('domains.move');
         Route::post('/domains/{activation}/check-in', [LicenseActionController::class, 'checkIn'])->name('domains.check-in');
         Route::delete('/domains/{activation}', [LicenseActionController::class, 'deactivateDomain'])->name('domains.deactivate');
+        Route::get('/certificate', [LicenseActionController::class, 'certificate'])->name('certificate');
+        Route::post('/offline-activation', [LicenseActionController::class, 'offlineActivation'])->name('offline');
     });
     Route::get('/downloads', [PortalController::class, 'downloads'])->name('.downloads');
+    Route::get('/downloads/{release}', [PortalController::class, 'download'])->middleware('throttle:20,1')->name('.downloads.file');
     Route::get('/billing', [PortalController::class, 'billingPage'])->name('.billing');
     Route::post('/billing/details', [PortalController::class, 'updateBillingDetails'])->name('.billing.details');
     Route::get('/support', [PortalController::class, 'support'])->name('.support');
@@ -93,8 +100,8 @@ Route::middleware('auth')->prefix('dashboard')->name('dashboard')->group(functio
 
 /*
 |--------------------------------------------------------------------------
-| Site admin (frontend management). Organisations, subscriptions and
-| license suspension are administered in billing.twsd.me.
+| Site admin: licenses, customers, releases, orders, invoices, payments
+| and storefront settings.
 |--------------------------------------------------------------------------
 */
 Route::middleware(['auth', 'admin'])->prefix('admin')->name('admin.')->group(function () {
@@ -126,9 +133,29 @@ Route::middleware(['auth', 'admin'])->prefix('admin')->name('admin.')->group(fun
     Route::get('/orders', [Admin\OrderAdminController::class, 'orders'])->name('orders');
     Route::post('/orders/{order}/paid', [Admin\OrderAdminController::class, 'markPaid'])->name('orders.paid');
     Route::post('/orders/{order}/refund', [Admin\OrderAdminController::class, 'refund'])->name('orders.refund');
-    Route::post('/orders/{order}/resync', [Admin\OrderAdminController::class, 'resync'])->name('orders.resync');
-    Route::post('/orders/{order}/resolve', [Admin\OrderAdminController::class, 'resolveFlag'])->name('orders.resolve');
     Route::get('/invoices', [Admin\OrderAdminController::class, 'invoices'])->name('invoices');
+
+    // Licensing
+    Route::get('/licenses', [Admin\LicenseAdminController::class, 'index'])->name('licenses');
+    Route::get('/licenses/create', [Admin\LicenseAdminController::class, 'create'])->name('licenses.create');
+    Route::post('/licenses', [Admin\LicenseAdminController::class, 'store'])->name('licenses.store');
+    Route::get('/licenses/{license}', [Admin\LicenseAdminController::class, 'show'])->name('licenses.show');
+    Route::put('/licenses/{license}', [Admin\LicenseAdminController::class, 'update'])->name('licenses.update');
+    Route::post('/licenses/{license}/status', [Admin\LicenseAdminController::class, 'status'])->name('licenses.status');
+    Route::post('/licenses/{license}/reveal', [Admin\LicenseAdminController::class, 'reveal'])->middleware('throttle:30,1')->name('licenses.reveal');
+    Route::post('/licenses/{license}/regenerate', [Admin\LicenseAdminController::class, 'regenerate'])->name('licenses.regenerate');
+    Route::post('/licenses/{license}/domains', [Admin\LicenseAdminController::class, 'addDomain'])->name('licenses.domains.add');
+    Route::delete('/licenses/{license}/domains/{activation}', [Admin\LicenseAdminController::class, 'deactivateDomain'])->name('licenses.domains.deactivate');
+    Route::post('/licenses/{license}/domains/{activation}/check-in', [Admin\LicenseAdminController::class, 'checkIn'])->name('licenses.domains.check-in');
+
+    Route::get('/customers', [Admin\CustomerAdminController::class, 'index'])->name('customers');
+    Route::get('/customers/{organisation}', [Admin\CustomerAdminController::class, 'show'])->name('customers.show');
+    Route::put('/customers/{organisation}', [Admin\CustomerAdminController::class, 'update'])->name('customers.update');
+
+    Route::get('/releases', [Admin\ReleaseAdminController::class, 'index'])->name('releases');
+    Route::post('/releases', [Admin\ReleaseAdminController::class, 'store'])->name('releases.store');
+    Route::put('/releases/{release}', [Admin\ReleaseAdminController::class, 'update'])->name('releases.update');
+    Route::delete('/releases/{release}', [Admin\ReleaseAdminController::class, 'destroy'])->name('releases.destroy');
 });
 
 /*

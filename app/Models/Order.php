@@ -12,18 +12,26 @@ class Order extends Model
         'number', 'organisation_id', 'user_id', 'plan_id', 'kind', 'billing_type', 'extra_domains', 'lines',
         'currency', 'exchange_rate', 'subtotal', 'discount', 'tax_rate', 'tax', 'total', 'coupon',
         'gateway', 'gateway_order_id', 'gateway_payment_id', 'status', 'primary_domain',
-        'billing_license_id', 'license_key', 'meta', 'paid_at',
+        'license_id', 'meta', 'paid_at', 'refund_reference', 'refund_reason', 'refunded_at',
     ];
 
-    protected $hidden = ['license_key'];
+    /** Order kinds: buying a new license, or changing an existing one. */
+    public const KINDS = [
+        'new_license' => 'New license',
+        'renewal' => 'Renewal',
+        'updates_renewal' => 'Updates & support renewal',
+        'extra_domains' => 'Extra domains',
+        'change_plan' => 'Upgrade',
+        'convert_lifetime' => 'Switch to lifetime',
+    ];
 
     protected function casts(): array
     {
         return [
             'lines' => 'array',
             'meta' => 'array',
-            'license_key' => 'encrypted',
             'paid_at' => 'datetime',
+            'refunded_at' => 'datetime',
             'subtotal' => 'float',
             'discount' => 'float',
             'tax_rate' => 'float',
@@ -36,6 +44,21 @@ class Order extends Model
     public function organisation(): BelongsTo
     {
         return $this->belongsTo(Organisation::class);
+    }
+
+    public function license(): BelongsTo
+    {
+        return $this->belongsTo(License::class);
+    }
+
+    public function kindLabel(): string
+    {
+        return self::KINDS[$this->kind] ?? self::KINDS['new_license'];
+    }
+
+    public function isNewLicense(): bool
+    {
+        return in_array($this->kind, ['new_license', 'license'], true);
     }
 
     public function user(): BelongsTo

@@ -2,7 +2,9 @@
 
 namespace App\Http\Controllers;
 
+use App\Licensing\LicensePricer;
 use App\Models\Addon;
+use App\Models\License;
 use App\Models\Order;
 use App\Models\Plan;
 use App\Payments\GatewayManager;
@@ -96,7 +98,7 @@ class CheckoutController extends Controller
             return back()->withInput()->withErrors(['gateway' => 'That payment method isn’t available for '.$currency.'.']);
         }
 
-        // Organisation: create for new customers (and in billing.twsd.me); update details for existing ones.
+        // Organisation: create for new customers; update details for existing ones.
         if ($guest) {
             $user = $orgs->register($data + ['company' => $data['company']]);
             Auth::login($user);
@@ -104,7 +106,6 @@ class CheckoutController extends Controller
         } else {
             $user = $request->user();
             $user->organisation->update(['name' => $data['company'], 'country' => strtoupper($data['country']), 'vat_id' => $data['vat_id'] ?? null]);
-            $orgs->syncToBilling($user->organisation);
         }
         $org = $user->organisation;
 
@@ -119,7 +120,7 @@ class CheckoutController extends Controller
             'organisation_id' => $org->id,
             'user_id' => $user->id,
             'plan_id' => $plan->id,
-            'kind' => 'license',
+            'kind' => 'new_license',
             'billing_type' => $data['billing'],
             'extra_domains' => (int) ($data['domains'] ?? 0),
             'lines' => $q['lines'],
@@ -140,6 +141,109 @@ class CheckoutController extends Controller
         return $this->startPayment($order);
     }
 
+    // ------------------------------------------------------------------
+    // Changes to an existing license: renew, renew updates, extra domains,
+    // upgrade, switch to lifetime. Same gateways, invoices and fulfilment.
+    // ------------------------------------------------------------------
+
+    public function licenseShow(Request $request, License $license, string $kind): View|RedirectResponse
+    {
+        $this->authorizeLicense($request, $license);
+        abort_unless(isset(Order::KINDS[$kind]) && $kind !== 'new_license', 404);
+        $pricer = app(LicensePricer::class);
+        $options = $pricer->options($license->load('plan', 'organisation'));
+        if ($options[$kind]) {
+            return redirect()->route('dashboard.licenses')->with(['toast' => $options[$kind], 'toast_tone' => 'danger']);
+        }
+
+        $currency = $this->currencies->current();
+        $upgrades = Plan::active()->where('price_annual', '>', $license->plan->price_annual)->get();
+        $input = $this->licenseInput($request, $kind, $upgrades);
+
+        return view('checkout.license', [
+            'license' => $license,
+            'kind' => $kind,
+            'upgrades' => $upgrades,
+            'input' => $input,
+            'quote' => $pricer->quote($license, $kind, $input, $currency),
+            'gateways' => $this->gateways->availableFor($currency),
+            'currency' => $currency,
+        ]);
+    }
+
+    public function licenseQuote(Request $request, License $license, string $kind)
+    {
+        $this->authorizeLicense($request, $license);
+        try {
+            $q = app(LicensePricer::class)->quote($license, $kind, $this->licenseInput($request, $kind, Plan::active()->get()), $this->currencies->current());
+        } catch (\App\Licensing\LicenseException $e) {
+            return response()->json(['error' => $e->getMessage()], 422);
+        }
+        $fmt = fn ($v) => $this->currencies->format($v, $q['currency'], true);
+
+        return response()->json([
+            'lines' => array_map(fn ($l) => ['description' => $l['description'], 'quantity' => $l['quantity'], 'amount' => $fmt($l['amount'])], $q['lines']),
+            'subtotal' => $fmt($q['subtotal']), 'tax' => $fmt($q['tax']), 'tax_rate' => round($q['tax_rate'] * 100, 2), 'total' => $fmt($q['total']),
+        ]);
+    }
+
+    public function licenseStore(Request $request, License $license, string $kind): RedirectResponse|View
+    {
+        $this->authorizeLicense($request, $license);
+        abort_unless(isset(Order::KINDS[$kind]) && $kind !== 'new_license', 404);
+        $request->validate(['gateway' => ['required', 'string'], 'terms' => ['accepted'], 'quantity' => ['nullable', 'integer', 'min:1', 'max:50'], 'plan' => ['nullable', 'string']]);
+
+        $currency = $this->currencies->current();
+        $gateway = $this->gateways->availableFor($currency)->first(fn ($g) => $g->code() === $request->input('gateway'));
+        if (! $gateway) {
+            return back()->withErrors(['gateway' => 'That payment method isn’t available for '.$currency.'.']);
+        }
+
+        try {
+            $q = app(LicensePricer::class)->quote($license->load('plan', 'organisation'), $kind, $this->licenseInput($request, $kind, Plan::active()->get()), $currency);
+        } catch (\App\Licensing\LicenseException $e) {
+            return back()->withErrors(['purchase' => $e->getMessage()]);
+        }
+
+        $order = Order::create([
+            'number' => 'ORD-'.now()->format('ymd').'-'.Str::upper(Str::random(5)),
+            'organisation_id' => $license->organisation_id,
+            'user_id' => $request->user()->id,
+            'plan_id' => $q['plan_id'],
+            'license_id' => $license->id,
+            'kind' => $kind,
+            'billing_type' => $kind === 'convert_lifetime' ? 'lifetime' : $license->billing_type,
+            'extra_domains' => $q['extra_domains'],
+            'lines' => $q['lines'],
+            'currency' => $q['currency'],
+            'exchange_rate' => $q['rate'],
+            'subtotal' => $q['subtotal'],
+            'discount' => 0,
+            'tax_rate' => $q['tax_rate'],
+            'tax' => $q['tax'],
+            'total' => $q['total'],
+            'gateway' => $gateway->code(),
+            'status' => 'pending',
+        ]);
+
+        return $this->startPayment($order);
+    }
+
+    /** @return array{quantity: int, plan: ?Plan} */
+    private function licenseInput(Request $request, string $kind, $plans): array
+    {
+        return [
+            'quantity' => max(1, min(50, (int) $request->input('quantity', 1))),
+            'plan' => $kind === 'change_plan' ? ($plans->firstWhere('code', $request->input('plan')) ?? $plans->first()) : null,
+        ];
+    }
+
+    private function authorizeLicense(Request $request, License $license): void
+    {
+        abort_unless($request->user() && $request->user()->organisation_id === $license->organisation_id, 404);
+        abort_unless(in_array($request->user()->role, ['owner', 'admin', 'billing'], true), 403, 'Ask an owner, admin or billing member to make purchases.');
+    }
+
     /** Hand the order to its gateway. */
     private function startPayment(Order $order): RedirectResponse|View
     {
@@ -156,7 +260,7 @@ class CheckoutController extends Controller
             Log::error('Payment start failed', ['order' => $order->number, 'gateway' => $order->gateway, 'error' => $e->getMessage()]);
             $order->update(['status' => 'failed']);
 
-            return redirect()->route('checkout', $order->plan->code)->withErrors(['gateway' => 'We couldn’t start the payment with '.$gateway->name().'. Please try again or pick another method.']);
+            return redirect($this->backUrl($order))->withErrors(['gateway' => 'We couldn’t start the payment with '.$gateway->name().'. Please try again or pick another method.']);
         }
 
         if ($action->gatewayOrderId) {
@@ -217,7 +321,15 @@ class CheckoutController extends Controller
             $order->update(['status' => 'cancelled']);
         }
 
-        return redirect()->route('checkout', $order->plan->code)->with('toast', 'Payment cancelled. Nothing was charged.');
+        return redirect($this->backUrl($order))->with('toast', 'Payment cancelled. Nothing was charged.');
+    }
+
+    /** Where to send the customer back to: the plan checkout, or the license purchase page. */
+    private function backUrl(Order $order): string
+    {
+        return $order->isNewLicense() || ! $order->license
+            ? route('checkout', $order->plan?->code ?? 'starter')
+            : route('licenses.buy', [$order->license, $order->kind]);
     }
 
     public function complete(Request $request, Order $order): View
@@ -225,7 +337,7 @@ class CheckoutController extends Controller
         $this->authorizeOrder($request, $order);
 
         return view('marketing.success', [
-            'order' => $order->load('plan', 'invoice'),
+            'order' => $order->load('plan', 'invoice', 'license.plan'),
             'bank' => $order->gateway === 'bank_transfer' ? $this->gateways->driver('bank_transfer')->details() : null,
         ]);
     }

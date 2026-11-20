@@ -2,9 +2,6 @@
 
 namespace App\Providers;
 
-use App\Services\Billing\BillingClient;
-use App\Services\Billing\HttpBillingClient;
-use App\Services\Billing\LocalBillingClient;
 use App\Services\Currency\CurrencyService;
 use App\Support\Settings;
 use Illuminate\Support\ServiceProvider;
@@ -16,13 +13,13 @@ class AppServiceProvider extends ServiceProvider
         $this->app->singleton(Settings::class);
         $this->app->singleton(CurrencyService::class);
 
-        $this->app->singleton(BillingClient::class, fn () => config('services.wcc.enabled')
-            ? new HttpBillingClient(config('services.wcc'))
-            : new LocalBillingClient);
     }
 
     public function boot(): void
     {
+        // License server: 30 requests a minute per IP.
+        \Illuminate\Support\Facades\RateLimiter::for('license-server', fn (\Illuminate\Http\Request $r) => \Illuminate\Cache\RateLimiting\Limit::perMinute(30)->by('license:'.$r->ip()));
+
         // Web installer: before installation, make sure .env/APP_KEY exist and keep
         // sessions, cache and queue off the (not yet configured) database.
         if (! $this->app->runningInConsole() && ! \App\Support\Installer\Installer::isInstalled()) {

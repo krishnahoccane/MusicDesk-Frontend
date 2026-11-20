@@ -1,11 +1,12 @@
 @php
     use App\Support\Demo;
-    $latest = Demo::LATEST_VERSION;
+    $latest = \App\Models\Release::latestVersion();
     $installs = collect($licenses)->flatMap(fn ($l) => collect($l['installations'])->map(fn ($i) => $i + ['license' => $l['id'], 'tier' => $l['tier']]));
     $outdated = $installs->where('version', '!=', $latest)->count();
     $domainsUsed = array_sum(array_column($licenses, 'domains_used'));
     $domainsTotal = array_sum(array_column($licenses, 'domains'));
-    $release = Demo::releases()[0];
+    $latestRelease = \App\Models\Release::latest();
+    $release = $latestRelease ? ['version' => $latestRelease->version, 'date' => local_time($latestRelease->released_at)->format('M d, Y'), 'notes' => array_map(fn ($n) => [$n['kind'] ?? 'new', $n['text'] ?? ''], $latestRelease->notes ?? [])] : null;
     $expiring = collect($licenses)->where('status', 'expiring')->sortBy('days_left')->first();
     $next = collect($licenses)->filter(fn ($l) => $l['renews'])->sortBy('days_left')->first();
     $priceOf = fn ($l) => isset($l['price_currency']) ? fmt_money($l['price'], $l['price_currency']) : money($l['price'])['display'];
@@ -103,6 +104,7 @@
         </div>
 
         {{-- Latest release --}}
+        @if ($release)
         <div class="relative overflow-hidden rounded-2xl border border-white/10 p-6" style="background: radial-gradient(120% 100% at 100% 0%, rgb(124 92 255 / .25), transparent 55%), radial-gradient(100% 80% at 0% 100%, rgb(255 63 210 / .14), transparent 60%), #0b0b12">
             <div class="flex items-center justify-between">
                 <span class="badge badge-mint">Latest release</span>
@@ -119,6 +121,7 @@
                 <a href="{{ route('dashboard.downloads') }}#changelog" class="btn btn-outline btn-sm flex-1">Changelog</a>
             </div>
         </div>
+        @endif
     </div>
 
     <div class="mt-4 grid gap-4 xl:grid-cols-3">

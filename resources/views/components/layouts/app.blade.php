@@ -11,6 +11,11 @@
                 ['Orders', 'admin.orders', [], 'receipt', null],
                 ['Invoices', 'admin.invoices', [], 'file', null],
             ],
+            'Licensing' => [
+                ['Licenses', 'admin.licenses', [], 'key', null],
+                ['Customers', 'admin.customers', [], 'users', null],
+                ['Releases', 'admin.releases', [], 'download', null],
+            ],
             'Storefront' => [
                 ['Branding', 'admin.settings', ['branding'], 'sparkles', null],
                 ['Homepage text', 'admin.settings', ['home'], 'file', null],
@@ -29,7 +34,7 @@
             'Portal' => [
                 ['Overview', 'dashboard', [], 'home', null],
                 ['Licenses', 'dashboard.licenses', [], 'key', null],
-                ['Downloads', 'dashboard.downloads', [], 'download', 'v'.Demo::LATEST_VERSION],
+                ['Downloads', 'dashboard.downloads', [], 'download', 'v'.\App\Models\Release::latestVersion()],
             ],
             'Account' => [
                 ['Billing', 'dashboard.billing', [], 'card', null],
@@ -64,7 +69,7 @@
                 </span>
             </div>
         @elseif ($isAdmin)
-            <p class="mx-5 mb-2 text-[11px] leading-relaxed text-ink-500">Storefront settings for {{ parse_url(config('app.url'), PHP_URL_HOST) }}. Customers & licenses are managed in billing.twsd.me.</p>
+            <p class="mx-5 mb-2 text-[11px] leading-relaxed text-ink-500">Site admin for {{ parse_url(config('app.url'), PHP_URL_HOST) }}: licensing, payments and storefront.</p>
         @endif
 
         <nav class="flex-1 space-y-6 overflow-y-auto px-3 py-3">
@@ -88,7 +93,7 @@
             <div class="relative mx-3 mb-3 overflow-hidden rounded-2xl border hairline p-4">
                 <div class="absolute inset-0 opacity-60" style="background: radial-gradient(120% 80% at 100% 0%, color-mix(in oklab, var(--color-flare-500) 25%, transparent), transparent 60%), radial-gradient(100% 80% at 0% 100%, color-mix(in oklab, var(--color-volt-500) 30%, transparent), transparent 60%)"></div>
                 <div class="relative">
-                    <div class="flex items-center gap-2 text-[13px] font-medium text-white"><x-icon name="sparkles" class="size-4 text-amber-glow"/> {{ setting('branding.product_name') }} {{ Demo::LATEST_VERSION }} is out</div>
+                    <div class="flex items-center gap-2 text-[13px] font-medium text-white"><x-icon name="sparkles" class="size-4 text-amber-glow"/> {{ setting('branding.product_name') }} {{ \App\Models\Release::latestVersion() }} is out</div>
                     <p class="mt-1.5 text-xs leading-relaxed text-ink-300">Free with an active license.</p>
                     <a href="{{ route('dashboard.downloads') }}" class="mt-3 inline-flex items-center gap-1 text-xs font-medium text-volt-300 hover:text-white">See what’s new <x-icon name="arrow-right" class="size-3"/></a>
                 </div>

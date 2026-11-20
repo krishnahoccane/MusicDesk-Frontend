@@ -2,7 +2,6 @@
 
 namespace Tests\Unit;
 
-use App\Http\Controllers\WebhookController;
 use App\Payments\Gateways\RazorpayGateway;
 use App\Payments\Gateways\StripeGateway;
 use App\Services\Currency\CurrencyService;
@@ -64,14 +63,4 @@ class PricingAndSignaturesTest extends TestCase
         $this->assertFalse(StripeGateway::validSignature($payload, "t=$old,v1=".hash_hmac('sha256', "$old.$payload", $secret), $secret));
     }
 
-    public function test_billing_webhook_signature(): void
-    {
-        $secret = 'whsec_wcc';
-        $body = '{"id":"evt_9","type":"license.suspended"}';
-        $t = time();
-
-        $this->assertTrue(WebhookController::validWccSignature($body, "t=$t,v1=".hash_hmac('sha256', "$t.$body", $secret), $secret));
-        $this->assertFalse(WebhookController::validWccSignature($body, "t=$t,v1=deadbeef", $secret));
-        $this->assertFalse(WebhookController::validWccSignature($body, '', $secret));
-    }
 }

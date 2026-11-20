@@ -29,11 +29,11 @@
                         </div>
                         <div class="font-mono text-sm text-white">{{ $priceOf($l) }}</div>
                         <label class="flex items-center gap-2 text-xs text-ink-400">
-                            <span x-text="on ? 'Auto-renew' : 'Manual'"></span>
-                            <button type="button" class="switch" :aria-checked="on.toString()" @click="on = !on; toast(on ? 'Auto-renew on for {{ $l['id'] }}' : 'Auto-renew off for {{ $l['id'] }}')" role="switch"><span></span></button>
+                            <span x-text="on ? 'Reminders on' : 'Reminders off'"></span>
+                            <button type="button" class="switch" :aria-checked="on.toString()" @click="on = !on; portalApi(@js(route('dashboard.licenses.auto-renew', $l['uid'])), 'POST', { auto_renew: on }).then(r => toast(r.message)).catch(() => on = !on)" role="switch" title="Email reminders 30, 14 and 3 days before renewal"><span></span></button>
                         </label>
-                        @if ($l['status'] === 'expiring')
-                            <a href="{{ route('dashboard.licenses') }}" class="btn btn-sm bg-amber-glow text-ink-950 hover:brightness-110">Renew now</a>
+                        @if (in_array($l['status'], ['expiring', 'expired'], true))
+                            <a href="{{ route('licenses.buy', [$l['uid'], 'renewal']) }}" class="btn btn-sm bg-amber-glow text-ink-950 hover:brightness-110">Renew now</a>
                         @endif
                     </div>
                 @empty
@@ -45,7 +45,7 @@
         {{-- Payment --}}
         <div class="card card-pad">
             <h2 class="font-semibold text-white">How you pay</h2>
-            <p class="mt-1 text-sm text-ink-400">You choose a payment method at checkout. Card details are stored by the payment provider, never by us.</p>
+            <p class="mt-1 text-sm text-ink-400">You choose a payment method each time you buy or renew. Card details stay with the payment provider, never with us. Renewals aren’t charged automatically: we email you 30, 14 and 3 days before.</p>
             <div class="mt-4 rounded-xl border hairline p-4 text-sm">
                 <div class="text-xs text-ink-500">Last payment</div>
                 @if ($lastOrder)

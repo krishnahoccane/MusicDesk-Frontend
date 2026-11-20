@@ -7,11 +7,11 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Organisation extends Model
 {
-    protected $fillable = ['name', 'billing_org_id', 'email', 'country', 'vat_id', 'address', 'currency', 'timezone', 'billing_synced_at'];
+    protected $fillable = ['name', 'email', 'country', 'vat_id', 'address', 'currency', 'timezone', 'notes'];
 
     protected function casts(): array
     {
-        return ['address' => 'array', 'billing_synced_at' => 'datetime'];
+        return ['address' => 'array'];
     }
 
     public function users(): HasMany
@@ -22,6 +22,11 @@ class Organisation extends Model
     public function orders(): HasMany
     {
         return $this->hasMany(Order::class);
+    }
+
+    public function licenses(): HasMany
+    {
+        return $this->hasMany(License::class);
     }
 
     public function invoices(): HasMany
@@ -43,7 +48,6 @@ class Organisation extends Model
             'country' => $this->country,
             'vat_id' => $this->vat_id,
             'address' => $this->address,
-            'billing_org_id' => $this->billing_org_id,
         ];
     }
 }

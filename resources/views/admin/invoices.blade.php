@@ -1,5 +1,5 @@
 @php $statusBadge = ['paid' => 'badge-mint', 'open' => 'badge-amber', 'refunded' => 'badge-sky', 'void' => 'badge-ink']; @endphp
-<x-layouts.app area="admin" title="Invoices" subtitle="Every invoice is generated here and reported to billing.twsd.me with a signed PDF link.">
+<x-layouts.app area="admin" title="Invoices" subtitle="Every invoice issued for orders, renewals and manual sales.">
     <x-slot:eyebrow>Admin · Overview</x-slot:eyebrow>
     <x-slot:actions><a href="{{ route('admin.settings', 'invoice') }}" class="btn btn-outline btn-sm"><x-icon name="settings" class="size-3.5"/> Invoice settings</a></x-slot:actions>
 

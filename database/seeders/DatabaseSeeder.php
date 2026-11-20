@@ -6,7 +6,12 @@ use App\Models\Invoice;
 use App\Models\Organisation;
 use App\Models\PaymentGateway;
 use App\Models\User;
-use App\Services\Billing\LocalBillingClient;
+use App\Licensing\LicenseService;
+use App\Models\License;
+use App\Models\Plan;
+use App\Models\Release;
+use App\Support\Demo;
+use Illuminate\Support\Str;
 use App\Services\Orders\InvoiceService;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Carbon;
@@ -26,6 +31,8 @@ class DatabaseSeeder extends Seeder
         $this->call(ReferenceDataSeeder::class);
         $this->demoBankTransfer();
         $this->users();
+        $this->releases();
+        $this->licenses();
     }
 
     /** Enables bank transfer with placeholder details so checkout works locally without gateway keys. */
@@ -47,10 +54,9 @@ class DatabaseSeeder extends Seeder
             'name' => 'Site Admin', 'password' => 'musicdesk-admin-2026', 'role' => 'owner',
         ])->forceFill(['is_admin' => true])->save();
 
-        $org = Organisation::updateOrCreate(['billing_org_id' => LocalBillingClient::DEMO_ORG], [
-            'name' => 'Lowtide Distribution Ltd.', 'email' => 'billing@lowtide.test', 'country' => 'GB',
+        $org = Organisation::updateOrCreate(['email' => Demo::DEMO_ORG_EMAIL], [
+            'name' => 'Lowtide Distribution Ltd.', 'country' => 'GB',
             'vat_id' => 'GB284119307', 'currency' => 'USD', 'address' => ['text' => "14 Harbour Lane\nBristol BS1 4QA\nUnited Kingdom"],
-            'billing_synced_at' => now(),
         ]);
 
         User::updateOrCreate(['email' => 'demo@lowtide.test'], [
@@ -83,5 +89,67 @@ class DatabaseSeeder extends Seeder
             ]);
         }
         Carbon::setTestNow();
+    }
+
+    /** Release history (changelog only; upload packages in /admin/releases). */
+    private function releases(): void
+    {
+        foreach (Demo::releases() as $r) {
+            Release::updateOrCreate(['version' => $r['version']], [
+                'channel' => 'stable',
+                'released_at' => Carbon::parse($r['date'], 'UTC'),
+                'notes' => array_map(fn ($n) => ['kind' => $n[0], 'text' => $n[1]], $r['notes']),
+                'requirements' => ['php' => 'PHP 8.2+ · Nginx or Apache', 'database' => 'MySQL 8 / PostgreSQL 15', 'extras' => 'Redis, cron, 2 GB RAM'],
+                'published' => true,
+            ]);
+        }
+    }
+
+    /** Three demo licenses covering the common states: busy annual, lifetime with lapsed updates, annual about to expire. */
+    private function licenses(): void
+    {
+        $org = Organisation::where('email', Demo::DEMO_ORG_EMAIL)->firstOrFail();
+        if ($org->licenses()->exists()) {
+            return;
+        }
+        $service = app(LicenseService::class);
+        $starter = Plan::where('code', 'starter')->firstOrFail();
+        $business = Plan::where('code', 'business')->firstOrFail();
+
+        [$main] = $service->create($org, $business, [
+            'billing_type' => 'annual', 'domains_extra' => 1, 'price_paid' => 1299, 'currency' => 'USD',
+            'purchased_at' => Carbon::parse('2026-03-14 10:00:00', 'UTC'),
+        ], 'seed');
+        $this->activate($main, [
+            ['music.lowtide.com', 'production', '4.3.0', 2],
+            ['portal.northbeat.fm', 'production', '4.3.0', 5],
+            ['artists.lowtide.com', 'production', '4.2.1', 60 * 30],
+            ['staging.lowtide.com', 'staging', '4.3.0', 90],
+        ]);
+
+        [$legacy] = $service->create($org, $starter, [
+            'billing_type' => 'lifetime', 'price_paid' => 1490, 'currency' => 'USD',
+            'purchased_at' => Carbon::parse('2024-08-02 10:00:00', 'UTC'),
+        ], 'seed');
+        $this->activate($legacy, [['labels.sunsetwax.co', 'production', '4.1.0', 7]]);
+
+        // Bought a year ago (minus 11 days), so it renews in 11 days.
+        [$expiring] = $service->create($org, $starter, [
+            'billing_type' => 'annual', 'price_paid' => 499, 'currency' => 'USD',
+            'purchased_at' => now()->subYear()->addDays(11),
+        ], 'seed');
+        $this->activate($expiring, [['releases.driftrecords.net', 'production', '4.3.0', 12]]);
+    }
+
+    /** @param  array<int, array{0: string, 1: string, 2: string, 3: int}>  $installs  domain, env, version, minutes since check-in */
+    private function activate(License $license, array $installs): void
+    {
+        foreach ($installs as $i => [$domain, $env, $version, $minutes]) {
+            $license->activations()->create([
+                'domain' => $domain, 'environment' => $env, 'status' => 'active',
+                'instance_id' => (string) Str::uuid(), 'ip' => '203.0.113.'.(20 + $i), 'version' => $version, 'php_version' => '8.3.'.(10 + $i),
+                'last_check_in_at' => now()->subMinutes($minutes), 'activated_at' => $license->purchased_at->copy()->addDays(1 + $i),
+            ]);
+        }
     }
 }

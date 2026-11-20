@@ -49,7 +49,7 @@ class StorefrontTest extends TestCase
         $this->get('/pricing')->assertSee('$499');
     }
 
-    public function test_registration_creates_the_organisation_here_and_in_billing(): void
+    public function test_registration_creates_the_organisation(): void
     {
         $this->post('/register', [
             'name' => 'Ada Lovelace', 'company' => 'Analytical Records', 'email' => 'ada@analytical.test', 'country' => 'GB', 'password' => 'correct-horse-battery',
@@ -58,7 +58,6 @@ class StorefrontTest extends TestCase
         $user = User::where('email', 'ada@analytical.test')->firstOrFail();
         $this->assertSame('Analytical Records', $user->organisation->name);
         $this->assertSame('GB', $user->organisation->country);
-        $this->assertStringStartsWith('cus_', $user->organisation->billing_org_id, 'created in billing at sign-up (POST /customers)');
         $this->assertSame('owner', $user->role);
         $this->get('/dashboard')->assertOk()->assertSee('Get your first');
 
@@ -86,9 +85,11 @@ class StorefrontTest extends TestCase
         $this->assertEqualsWithDelta(0.18, $order->tax_rate, 0.0001);
         $this->assertEquals(round(91797 * 1.18, 2), $order->total);
         $this->assertSame('awaiting_payment', $order->status);
-        $this->assertNotNull($order->license_key);
-        $this->assertStringStartsWith('LDSK-', $order->license_key);
-        $this->assertStringStartsWith('cus_', $order->organisation->fresh()->billing_org_id, 'customer created in billing with the first order');
+        $license = $order->license;
+        $this->assertNotNull($license, 'license issued at checkout');
+        $this->assertSame('pending', $license->status, 'bank transfer: works during the grace period until paid');
+        $this->assertStringStartsWith('LDSK-', $license->key());
+        $this->assertSame(1, $license->activations()->where('domain', 'portal.bassline.test')->count(), 'primary domain pre-registered');
 
         $invoice = $order->invoice;
         $this->assertSame('open', $invoice->status);
@@ -111,6 +112,7 @@ class StorefrontTest extends TestCase
         $this->assertSame('paid', $order->status);
         $this->assertSame('NEFT123', $order->gateway_payment_id);
         $this->assertSame('paid', $order->invoice->status);
+        $this->assertSame('active', $order->license->fresh()->status);
     }
 
     public function test_razorpay_webhook_marks_order_paid_once(): void
@@ -171,7 +173,7 @@ class StorefrontTest extends TestCase
         $this->actingAs($customer)->get('/admin')->assertForbidden();
 
         $admin = User::where('email', 'admin@musicdesk.test')->first();
-        foreach (['/admin', '/admin/settings/branding', '/admin/settings/home', '/admin/settings/contact', '/admin/settings/invoice', '/admin/settings/general', '/admin/plans', '/admin/currencies', '/admin/gateways', '/admin/pages', '/admin/orders', '/admin/invoices'] as $url) {
+        foreach (['/admin', '/admin/settings/branding', '/admin/settings/home', '/admin/settings/contact', '/admin/settings/invoice', '/admin/settings/general', '/admin/plans', '/admin/currencies', '/admin/gateways', '/admin/pages', '/admin/orders', '/admin/invoices', '/admin/licenses', '/admin/licenses/create', '/admin/customers', '/admin/releases'] as $url) {
             $this->actingAs($admin)->get($url)->assertOk();
         }
     }

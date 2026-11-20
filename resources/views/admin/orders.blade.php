@@ -1,34 +1,51 @@
 @php
     $statusBadge = ['paid' => 'badge-mint', 'awaiting_payment' => 'badge-amber', 'pending' => 'badge-ink', 'failed' => 'badge-coral', 'cancelled' => 'badge-ink', 'refunded' => 'badge-sky'];
-    $gatewayNames = ['razorpay' => 'Razorpay', 'stripe' => 'Stripe', 'paypal' => 'PayPal', 'bank_transfer' => 'Bank transfer'];
+    $gatewayNames = ['razorpay' => 'Razorpay', 'stripe' => 'Stripe', 'paypal' => 'PayPal', 'bank_transfer' => 'Bank transfer', 'manual' => 'Manual'];
 @endphp
-<x-layouts.app area="admin" title="Orders" subtitle="Payments taken on this site. Licenses and organisations are administered in billing.twsd.me.">
+<x-layouts.app area="admin" title="Orders" subtitle="Every purchase: new licenses, renewals, upgrades and extra domains. Paying an order applies it to the license.">
     <x-slot:eyebrow>Admin · Overview</x-slot:eyebrow>
 
     <div class="card">
-        <div class="flex flex-wrap gap-1 border-b hairline p-4 text-[13px]">
-            @foreach (['' => 'All', 'paid' => 'Paid', 'awaiting_payment' => 'Awaiting transfer', 'pending' => 'Started', 'failed' => 'Failed', 'cancelled' => 'Cancelled', 'refunded' => 'Refunded'] as $k => $l)
-                <a href="{{ route('admin.orders', array_filter(['status' => $k])) }}" class="rounded-lg px-3 py-1.5 font-medium transition {{ request('status', '') === $k ? 'bg-white/10 text-white' : 'text-ink-400 hover:text-white' }}">{{ $l }}</a>
-            @endforeach
+        <div class="flex flex-wrap items-center justify-between gap-3 border-b hairline p-4 text-[13px]">
+            <div class="flex flex-wrap gap-1">
+                @foreach (['' => 'All', 'paid' => 'Paid', 'awaiting_payment' => 'Awaiting transfer', 'pending' => 'Started', 'failed' => 'Failed', 'cancelled' => 'Cancelled', 'refunded' => 'Refunded'] as $k => $l)
+                    <a href="{{ route('admin.orders', array_filter(['status' => $k, 'kind' => request('kind')])) }}" class="rounded-lg px-3 py-1.5 font-medium transition {{ request('status', '') === $k ? 'bg-white/10 text-white' : 'text-ink-400 hover:text-white' }}">{{ $l }}</a>
+                @endforeach
+            </div>
+            <form method="GET" class="flex items-center gap-2">
+                <input type="hidden" name="status" value="{{ request('status') }}">
+                <select name="kind" class="input !w-auto !py-1.5 text-[13px]" onchange="this.form.submit()" aria-label="Order type">
+                    <option value="">All types</option>
+                    @foreach (\App\Models\Order::KINDS as $k => $l)<option value="{{ $k }}" @selected(request('kind') === $k)>{{ $l }}</option>@endforeach
+                </select>
+            </form>
         </div>
         <div class="overflow-x-auto">
             <table class="table">
-                <thead><tr><th>Order</th><th>Organisation</th><th>Item</th><th>Total</th><th>Gateway</th><th>Status</th><th>Billing sync</th><th></th></tr></thead>
+                <thead><tr><th>Order</th><th>Customer</th><th>Item</th><th>Total</th><th>Gateway</th><th>Status</th><th>License</th><th></th></tr></thead>
                 <tbody>
                     @forelse ($orders as $o)
                         <tr>
                             <td><div class="font-mono text-xs text-white">{{ $o->number }}</div><div class="text-[11px] text-ink-500">{{ local_time($o->created_at)->format('M d, Y H:i') }}</div></td>
-                            <td><div class="text-ink-100">{{ $o->organisation?->name }}</div><div class="font-mono text-[11px] text-ink-500">{{ $o->organisation?->billing_org_id ?? 'not in billing' }}</div></td>
-                            <td class="text-ink-300">{{ $o->plan?->name }} · {{ ucfirst($o->billing_type) }}{{ $o->extra_domains ? ' +'.$o->extra_domains.' dom.' : '' }}</td>
+                            <td>
+                                <div class="text-ink-100">{{ $o->organisation?->name }}</div>
+                                @if ($o->organisation)<a href="{{ route('admin.customers.show', $o->organisation) }}" class="text-[11px] text-volt-300 hover:text-white">View customer</a>@endif
+                            </td>
+                            <td class="text-ink-300">
+                                <div class="text-ink-100">{{ $o->kindLabel() }}</div>
+                                <div class="text-xs">{{ $o->plan?->name }} · {{ ucfirst($o->billing_type) }}{{ $o->extra_domains ? ' · '.$o->extra_domains.' extra domain(s)' : '' }}</div>
+                            </td>
                             <td><div class="font-mono text-white">{{ fmt_money($o->total, $o->currency) }}</div>@if ($o->currency !== 'USD')<div class="font-mono text-[11px] text-ink-500">≈ ${{ number_format($o->total / max($o->exchange_rate, 0.00000001), 2) }}</div>@endif</td>
                             <td class="text-ink-300">{{ $gatewayNames[$o->gateway] ?? $o->gateway }}</td>
-                            <td><span class="badge badge-dot {{ $statusBadge[$o->status] ?? 'badge-ink' }}">{{ str_replace('_', ' ', $o->status) }}</span></td>
-                            <td class="max-w-[220px] whitespace-normal">
-                                @if ($o->billing_license_id)<span class="font-mono text-[11px] text-mint-400">{{ $o->meta['license_number'] ?? 'license issued' }}</span>
-                                @elseif (in_array($o->status, ['paid', 'awaiting_payment'], true))<span class="text-[11px] text-coral-400">not in billing</span>
-                                @else<span class="text-[11px] text-ink-500">—</span>@endif
-                                @if (! empty($o->meta['billing_action']) || (! $o->billing_license_id && ! empty($o->meta['billing_error'])))
-                                    <div class="mt-1 flex items-start gap-1.5 text-[11px] leading-snug text-amber-glow"><x-icon name="alert" class="mt-px size-3"/><span>{{ $o->meta['billing_error'] }}</span></div>
+                            <td>
+                                <span class="badge badge-dot {{ $statusBadge[$o->status] ?? 'badge-ink' }}">{{ str_replace('_', ' ', $o->status) }}</span>
+                                @if ($o->refund_reason)<div class="mt-1 max-w-[180px] truncate text-[11px] text-ink-500" title="{{ $o->refund_reason }}">{{ $o->refund_reason }}</div>@endif
+                            </td>
+                            <td>
+                                @if ($o->license)
+                                    <a href="{{ route('admin.licenses.show', $o->license) }}" class="font-mono text-[11px] text-volt-300 hover:text-white">{{ $o->license->number }}</a>
+                                @else
+                                    <span class="text-[11px] text-ink-500">—</span>
                                 @endif
                             </td>
                             <td class="text-right">
@@ -45,16 +62,10 @@
                                         @endif
                                         @if ($o->isPaid())
                                             <form method="POST" action="{{ route('admin.orders.refund', $o) }}"
-                                                  onsubmit="if (!confirm('Record a refund for {{ $o->number }}? Issue the actual refund in the {{ $gatewayNames[$o->gateway] ?? 'gateway' }} dashboard first. Billing will revoke the license.')) return false; const r = prompt('Refund reference from the gateway (optional):'); if (r === null) return false; this.reference.value = r; this.reason.value = prompt('Reason (optional, shown on the license):', '30-day money-back guarantee') || '';">
+                                                  onsubmit="if (!confirm('Record a refund for {{ $o->number }}? Issue the actual refund in the {{ $gatewayNames[$o->gateway] ?? 'gateway' }} dashboard first. A refunded new license is revoked.')) return false; const r = prompt('Refund reference from the gateway (optional):'); if (r === null) return false; this.reference.value = r; this.reason.value = prompt('Reason (optional, shown on the license):', '30-day money-back guarantee') || '';">
                                                 @csrf<input type="hidden" name="reference"><input type="hidden" name="reason">
                                                 <button class="nav-link w-full !py-1.5 text-xs !text-coral-400"><x-icon name="refresh" class="size-3.5"/> Record refund</button>
                                             </form>
-                                        @endif
-                                        @if ((in_array($o->status, ['paid', 'awaiting_payment'], true) && ! $o->billing_license_id) || ! empty($o->meta['billing_action']))
-                                            <form method="POST" action="{{ route('admin.orders.resync', $o) }}">@csrf<button class="nav-link w-full !py-1.5 text-xs"><x-icon name="upload" class="size-3.5"/> Retry in billing</button></form>
-                                        @endif
-                                        @if (! empty($o->meta['billing_action']))
-                                            <form method="POST" action="{{ route('admin.orders.resolve', $o) }}">@csrf<button class="nav-link w-full !py-1.5 text-xs !text-mint-400"><x-icon name="check" class="size-3.5"/> Done in billing by hand</button></form>
                                         @endif
                                     </div>
                                 </div>

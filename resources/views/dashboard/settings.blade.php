@@ -1,6 +1,6 @@
 @php use App\Support\Demo; $u = auth()->user();
     $team = $u->organisation?->users->map(fn ($m) => ['name' => $m->name, 'email' => $m->email, 'role' => ucfirst($m->role), 'initials' => $m->initials(), 'last' => $m->id === $u->id ? 'You' : 'Member'])->values()->all() ?? [];
-    if ($u->organisation?->billing_org_id === \App\Services\Billing\LocalBillingClient::DEMO_ORG) { $team = array_merge($team, array_slice(Demo::team(), 1)); }
+    if ($u->organisation?->email === Demo::DEMO_ORG_EMAIL) { $team = array_merge($team, array_slice(Demo::team(), 1)); }
 @endphp
 <x-layouts.app title="Settings" subtitle="Your profile, team access, notifications, security and API tokens.">
     <div class="grid gap-8 lg:grid-cols-[220px_1fr]" x-data="{ s: 'profile' }">

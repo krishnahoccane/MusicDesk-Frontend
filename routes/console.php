@@ -23,3 +23,6 @@ Artisan::command('currency:update-rates {--provider=}', function (RateUpdater $u
 
 // Daily at 00:05 UTC. Run `php artisan schedule:work` locally, or a cron calling `schedule:run` every minute in production.
 Schedule::command('currency:update-rates')->dailyAt('00:05')->withoutOverlapping()->onOneServer();
+
+// Renewal reminders 30 / 14 / 3 days before an annual license expires (see licenses:notify-expiring).
+Schedule::command('licenses:notify-expiring')->dailyAt('08:00')->withoutOverlapping()->onOneServer();

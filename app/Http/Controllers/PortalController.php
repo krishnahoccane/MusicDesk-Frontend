@@ -2,34 +2,29 @@
 
 namespace App\Http\Controllers;
 
+use App\Licensing\LicensePresenter;
 use App\Models\Invoice;
+use App\Models\License;
+use App\Models\Organisation;
 use App\Models\Plan;
-use App\Services\Billing\BillingClient;
+use App\Models\Release;
 use App\Services\Orders\InvoiceService;
-use App\Services\Orders\OrganisationService;
 use App\Support\Demo;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\View\View;
 
 class PortalController extends Controller
 {
-    public function __construct(private BillingClient $billing) {}
+    private function org(Request $request): ?Organisation
+    {
+        return Organisation::find($request->user()->organisation_id);
+    }
 
     private function licenses(Request $request): array
     {
-        $org = \App\Models\Organisation::find($request->user()->organisation_id);
-        if (! $org) {
-            return [];
-        }
-        try {
-            return $this->billing->licenses($org);
-        } catch (\Throwable $e) {
-            Log::error('Could not load licenses from billing', ['org' => $org->id, 'error' => $e->getMessage()]);
-
-            return [];
-        }
+        return LicensePresenter::forOrganisation($this->org($request));
     }
 
     private function invoices(Request $request)
@@ -37,10 +32,10 @@ class PortalController extends Controller
         return Invoice::query()->where('organisation_id', $request->user()->organisation_id)->latest('issued_at')->get();
     }
 
-    /** Support tickets: sample data for the demo organisation until the helpdesk is connected (spec §12). */
+    /** Support tickets: sample data for the seeded demo organisation until a helpdesk is connected. */
     private function tickets(Request $request): array
     {
-        return \App\Models\Organisation::find($request->user()->organisation_id)?->billing_org_id === \App\Services\Billing\LocalBillingClient::DEMO_ORG ? Demo::tickets() : [];
+        return $this->org($request)?->email === Demo::DEMO_ORG_EMAIL ? Demo::tickets() : [];
     }
 
     public function index(Request $request): View
@@ -55,12 +50,45 @@ class PortalController extends Controller
 
     public function downloads(Request $request): View
     {
-        return view('dashboard.downloads', ['releases' => Demo::releases(), 'licenses' => $this->licenses($request)]);
+        $releases = Release::published()->get();
+
+        return view('dashboard.downloads', [
+            'releases' => $releases->map(fn (Release $r, $i) => [
+                'id' => $r->id,
+                'version' => $r->version,
+                'date' => local_time($r->released_at)->format('M d, Y'),
+                'tag' => $i === 0 ? 'Latest' : ($r->channel === 'beta' ? 'Beta' : null),
+                'notes' => array_map(fn ($n) => [$n['kind'] ?? 'new', $n['text'] ?? ''], $r->notes ?? []),
+                'size' => $r->size_bytes,
+                'sha256' => $r->sha256,
+                'requirements' => $r->requirements ?? [],
+                'has_file' => $r->hasFile(),
+                'released_at' => $r->released_at,
+            ])->all(),
+            'licenses' => $this->licenses($request),
+        ]);
+    }
+
+    /** Download a release with a license that is entitled to it (updates period covers the release date). */
+    public function download(Request $request, Release $release)
+    {
+        abort_unless($release->published, 404);
+        $license = License::query()->where('uuid', (string) $request->query('license'))->where('organisation_id', $request->user()->organisation_id)->first();
+        abort_unless($license, 404);
+
+        if (! $license->mayDownload($release)) {
+            return back()->with(['toast' => "{$license->number} can’t download {$release->version}: its updates period ended before this release.", 'toast_tone' => 'danger']);
+        }
+        if (! $release->hasFile()) {
+            return back()->with(['toast' => "The {$release->version} package isn’t uploaded yet. Please contact support.", 'toast_tone' => 'danger']);
+        }
+
+        return Storage::disk('local')->download($release->file_path, $release->fileName());
     }
 
     public function billingPage(Request $request): View
     {
-        return view('dashboard.billing', ['licenses' => $this->licenses($request), 'invoices' => $this->invoices($request), 'org' => \App\Models\Organisation::find($request->user()->organisation_id)]);
+        return view('dashboard.billing', ['licenses' => $this->licenses($request), 'invoices' => $this->invoices($request), 'org' => $this->org($request)]);
     }
 
     public function support(Request $request): View
@@ -87,7 +115,7 @@ class PortalController extends Controller
         return back()->with('toast', 'Profile saved');
     }
 
-    public function updateBillingDetails(Request $request, OrganisationService $orgs): RedirectResponse
+    public function updateBillingDetails(Request $request): RedirectResponse
     {
         $data = $request->validate([
             'name' => ['required', 'string', 'max:160'],
@@ -96,9 +124,7 @@ class PortalController extends Controller
             'vat_id' => ['nullable', 'string', 'max:40'],
             'address' => ['nullable', 'string', 'max:500'],
         ]);
-        $org = \App\Models\Organisation::find($request->user()->organisation_id);
-        $org->update(['name' => $data['name'], 'email' => $data['email'], 'country' => strtoupper($data['country']), 'vat_id' => $data['vat_id'], 'address' => ['text' => $data['address']]]);
-        $orgs->syncToBilling($org);
+        $this->org($request)->update(['name' => $data['name'], 'email' => $data['email'], 'country' => strtoupper($data['country']), 'vat_id' => $data['vat_id'], 'address' => ['text' => $data['address']]]);
 
         return back()->with('toast', 'Billing details saved');
     }
@@ -115,13 +141,5 @@ class PortalController extends Controller
         abort_unless($invoice->organisation_id === $request->user()->organisation_id || $request->user()->is_admin, 404);
 
         return view('invoices.pdf', ['invoice' => $invoice, 'screen' => true]);
-    }
-
-    /** Signed link (sent to billing.twsd.me) so the central admin can fetch the PDF. */
-    public function invoiceSigned(string $invoice, InvoiceService $service)
-    {
-        $invoice = Invoice::query()->where('number', $invoice)->firstOrFail();
-
-        return $service->pdf($invoice)->stream($invoice->number.'.pdf');
     }
 }

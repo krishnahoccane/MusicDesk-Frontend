@@ -7,7 +7,7 @@ use App\Models\Order;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Illuminate\Support\Facades\DB;
 
-/** Invoices are generated on musicdesk.tech only (not on billing.twsd.me). */
+/** Generates invoices: PREFIX-YEAR-000001 numbering, tax and PDF. */
 class InvoiceService
 {
     /** Next number in the yearly sequence: PREFIX-2026-000042. */

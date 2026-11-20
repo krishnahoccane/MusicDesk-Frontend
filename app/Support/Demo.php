@@ -7,11 +7,12 @@ namespace App\Support;
  * MusicDesk is a white-label software provider. Customers buy LabelDesk
  * licenses and run the software on their own domains under their own brand.
  *
- * Replace with real data from the billing/licensing backend (billing.twsd.me).
+ * Demo-only content (tickets, team) until those modules are built.
  */
 class Demo
 {
-    public const LATEST_VERSION = '4.3.0';
+    /** Seeded demo organisation (DatabaseSeeder, development only). */
+    public const DEMO_ORG_EMAIL = 'billing@lowtide.test';
 
     public static function user(): array
     {
@@ -46,45 +47,6 @@ class Demo
         ];
     }
 
-    /** Licenses owned by the signed-in customer */
-    public static function licenses(): array
-    {
-        return [
-            [
-                'id' => 'LIC-24A7', 'product' => 'LabelDesk', 'tier' => 'Business', 'type' => 'Annual',
-                'key' => 'LDSK-7F3K-Q9PX-2MWA-H8TC', 'status' => 'active',
-                'domains_used' => 3, 'domains' => 4,
-                'purchased' => 'Mar 14, 2026', 'renews' => 'Mar 14, 2027', 'days_left' => 114, 'price' => 1299, 'auto_renew' => true,
-                'support_until' => 'Mar 14, 2027',
-                'installations' => [
-                    ['domain' => 'distribution.lowtide.co', 'env' => 'production', 'ip' => '172.104.18.xx', 'version' => '4.3.0', 'php' => '8.3', 'last' => '4 min ago', 'online' => true],
-                    ['domain' => 'portal.sidequest.audio', 'env' => 'production', 'ip' => '172.104.18.xx', 'version' => '4.2.1', 'php' => '8.3', 'last' => '12 min ago', 'online' => true],
-                    ['domain' => 'royalties.glasscoast.fm', 'env' => 'production', 'ip' => '45.79.201.xx', 'version' => '4.2.1', 'php' => '8.2', 'last' => '1 hour ago', 'online' => true],
-                    ['domain' => 'staging.lowtide.co', 'env' => 'staging', 'ip' => '172.104.19.xx', 'version' => '4.3.0', 'php' => '8.3', 'last' => 'Yesterday', 'online' => false],
-                ],
-            ],
-            [
-                'id' => 'LIC-19C2', 'product' => 'LabelDesk', 'tier' => 'Starter', 'type' => 'Lifetime',
-                'key' => 'LDSK-K2N8-VB4R-T7ZE-3QJD', 'status' => 'active',
-                'domains_used' => 1, 'domains' => 1,
-                'purchased' => 'Aug 02, 2024', 'renews' => null, 'days_left' => null, 'price' => 1490, 'auto_renew' => false,
-                'support_until' => 'Aug 02, 2025', 'support_expired' => true,
-                'installations' => [
-                    ['domain' => 'artists.lowtide.co', 'env' => 'production', 'ip' => '172.104.18.xx', 'version' => '3.8.0', 'php' => '8.1', 'last' => '2 hours ago', 'online' => true],
-                ],
-            ],
-            [
-                'id' => 'LIC-0B91', 'product' => 'LabelDesk', 'tier' => 'Starter', 'type' => 'Annual',
-                'key' => 'LDSK-P5WQ-8HMC-L1XA-9RTV', 'status' => 'expiring',
-                'domains_used' => 1, 'domains' => 1,
-                'purchased' => 'Dec 01, 2025', 'renews' => 'Dec 01, 2026', 'days_left' => 11, 'price' => 499, 'auto_renew' => false,
-                'support_until' => 'Dec 01, 2026',
-                'installations' => [
-                    ['domain' => 'music.nightbloom.de', 'env' => 'production', 'ip' => '88.198.4.xx', 'version' => '4.2.1', 'php' => '8.3', 'last' => 'Today', 'online' => true],
-                ],
-            ],
-        ];
-    }
 
     public static function releases(): array
     {

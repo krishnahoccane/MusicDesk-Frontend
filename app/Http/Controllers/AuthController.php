@@ -34,7 +34,7 @@ class AuthController extends Controller
         return view('auth.register');
     }
 
-    /** Creates the user, their organisation here, and the organisation in billing.twsd.me. */
+    /** Creates the user and their organisation. */
     public function register(Request $request, OrganisationService $orgs): RedirectResponse
     {
         $data = $request->validate([

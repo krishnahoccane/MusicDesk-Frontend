@@ -2,35 +2,36 @@
 
 namespace App\Services\Orders;
 
+use App\Licensing\ActivationService;
+use App\Licensing\LicenseService;
+use App\Models\License;
 use App\Models\Order;
-use App\Services\Billing\BillingClient;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 /**
  * What happens once money arrives (any gateway, or an admin marking a bank transfer paid):
- *   1. mark the order paid                  (idempotent: webhook + redirect can race)
- *   2. issue / settle the invoice           (generated here on musicdesk.tech, never on billing)
- *   3. report the paid order to billing     (POST /orders: creates the customer on the first
- *                                            order and the license; billing generates the key)
+ *   1. mark the order paid                     (idempotent: webhook + redirect can race)
+ *   2. issue / settle the invoice
+ *   3. apply the order to licensing: create the license (key generated here), or renew,
+ *      add domains, upgrade, switch to lifetime.
  */
 class OrderFulfiller
 {
-    public function __construct(private InvoiceService $invoices, private BillingClient $billing) {}
+    public function __construct(
+        private InvoiceService $invoices,
+        private LicenseService $licenses,
+        private ActivationService $activations,
+    ) {}
 
-    public function markPaid(Order $order, ?string $paymentId = null): Order
+    public function markPaid(Order $order, ?string $paymentId = null, ?string $actor = null): Order
     {
         $order = DB::transaction(function () use ($order, $paymentId) {
             $order = Order::query()->lockForUpdate()->findOrFail($order->id);
             if ($order->isPaid()) {
                 return $order;
             }
-            $wasPending = $order->status === 'awaiting_payment';
-            $order->update([
-                'status' => 'paid', 'paid_at' => now(),
-                'gateway_payment_id' => $paymentId ?? $order->gateway_payment_id,
-                'meta' => array_merge($order->meta ?? [], ['was_pending' => $wasPending]),
-            ]);
+            $order->update(['status' => 'paid', 'paid_at' => now(), 'gateway_payment_id' => $paymentId ?? $order->gateway_payment_id]);
 
             return $order;
         });
@@ -40,120 +41,97 @@ class OrderFulfiller
             $this->invoices->markPaid($invoice);
         }
 
-        if ($order->billing_license_id) {
-            // Reported earlier as a pending bank transfer: POST /orders/{ord}/confirm-payment activates it.
-            $this->confirmInBilling($order, $invoice->fresh());
+        $actor ??= 'payment: '.($order->gateway ?? 'manual');
+        if ($order->license_id && $order->isNewLicense()) {
+            // License created earlier as pending (bank transfer): activate it.
+            $this->licenses->confirmPayment($order->license, (string) $order->gateway_payment_id, $actor);
         } else {
-            $this->report($order, 'paid');
+            $this->apply($order->fresh(), pending: false, actor: $actor);
         }
 
         return $order->fresh();
     }
 
-    /** Bank transfer: invoice issued unpaid now; billing creates a pending license usable for 14 days. */
+    /**
+     * Bank transfer: invoice issued unpaid now. A new license is created as pending (usable for
+     * 14 days); changes to an existing license (renewal, upgrade…) wait until the money arrives.
+     */
     public function awaitOffline(Order $order): Order
     {
         $order->update(['status' => 'awaiting_payment']);
         $this->invoices->forOrder($order);
-        $this->report($order, 'pending');
+        if ($order->isNewLicense()) {
+            $this->apply($order->fresh(), pending: true, actor: 'checkout: bank transfer');
+        }
 
         return $order->fresh();
     }
 
-    /** POST /orders. Safe to call again: the idempotency key is fixed per order. */
-    public function report(Order $order, string $paymentStatus): void
+    /** Create or change the license for an order. Safe to call twice. */
+    private function apply(Order $order, bool $pending, string $actor): void
     {
-        if ($order->billing_license_id) {
-            return;
-        }
-        $order->loadMissing('organisation');
-        try {
-            $result = $this->billing->submitOrder($order, $order->invoice()->first(), $paymentStatus);
+        $order->loadMissing('organisation', 'plan', 'license');
 
-            if (! $order->organisation->billing_org_id && $result['customer_id']) {
-                $order->organisation->update(['billing_org_id' => $result['customer_id'], 'billing_synced_at' => now()]);
+        if ($order->isNewLicense()) {
+            if ($order->license_id) {
+                return;
+            }
+            [$license] = $this->licenses->create($order->organisation, $order->plan, [
+                'billing_type' => $order->billing_type,
+                'domains_extra' => $order->extra_domains,
+                'price_paid' => $order->total,
+                'currency' => $order->currency,
+                'pending' => $pending,
+                'auto_renew' => $order->billing_type === 'annual',
+            ], $actor);
+            $order->update(['license_id' => $license->id]);
+
+            if ($order->primary_domain) {
+                try {
+                    $this->activations->add($license, $order->primary_domain, null, $actor);
+                } catch (\Throwable $e) {
+                    // e.g. the domain is on another license: the customer adds it later from the portal.
+                    Log::notice('Primary domain not pre-approved', ['order' => $order->number, 'error' => $e->getMessage()]);
+                }
             }
 
-            $order->update([
-                'billing_license_id' => $result['license_id'],
-                'license_key' => $result['key'],     // only the local stand-in returns a key; live billing reveals on request
-                'meta' => array_merge($order->meta ?? [], array_filter([
-                    'license_number' => $result['license_number'],
-                    'billing_order_id' => $result['order_id'],
-                    'billing_error' => null,
-                ])),
-            ]);
-        } catch (\Throwable $e) {
-            Log::error('Billing POST /orders failed', ['order' => $order->number, 'error' => $e->getMessage()]);
-            $this->flag($order, 'report', $e->getMessage());
+            return;
         }
-    }
 
-    public function confirmInBilling(Order $order, \App\Models\Invoice $invoice): void
-    {
-        try {
-            $ok = $this->billing->confirmPayment($order, $invoice);
-        } catch (\Throwable $e) {
-            Log::error('Billing confirm-payment failed', ['order' => $order->number, 'error' => $e->getMessage()]);
-            $ok = false;
+        $license = $order->license;
+        if (! $license || ($order->meta['applied'] ?? false)) {
+            return;
         }
-        $ok ? $this->clearFlag($order->fresh())
-            : $this->flag($order, 'confirm_payment', 'Billing didn’t confirm this bank transfer yet. Retry, or set the license to active in billing.twsd.me.');
+
+        match ($order->kind) {
+            'renewal' => $this->licenses->renew($license, $actor),
+            'updates_renewal' => $this->licenses->renewUpdates($license, $actor),
+            'extra_domains' => $this->licenses->addDomains($license, max(1, $order->extra_domains), $actor),
+            'change_plan' => $this->licenses->changePlan($license, $order->plan, $actor),
+            'convert_lifetime' => $this->licenses->convertToLifetime($license, $actor),
+            default => null,
+        };
+        $order->update(['meta' => array_merge($order->meta ?? [], ['applied' => true])]);
     }
 
     /** @param  array{reference?: ?string, reason?: ?string}  $details */
-    public function refund(Order $order, array $details = []): void
+    public function refund(Order $order, array $details = [], ?string $actor = null): void
     {
-        $order->update(['status' => 'refunded', 'meta' => array_merge($order->meta ?? [], array_filter([
-            'refund_reference' => $details['reference'] ?? null,
-            'refund_reason' => $details['reason'] ?? null,
-        ]))]);
-        if ($invoice = $order->invoice) {
-            $invoice->update(['status' => 'refunded']);
-            if ($order->billing_license_id) {
-                $this->refundInBilling($order->fresh(), $invoice);
+        $reason = trim((string) ($details['reason'] ?? '')) ?: 'Refunded';
+        $order->update([
+            'status' => 'refunded', 'refunded_at' => now(),
+            'refund_reference' => $details['reference'] ?? null, 'refund_reason' => $reason,
+        ]);
+        $order->invoice?->update(['status' => 'refunded']);
+
+        if ($license = $order->license) {
+            $actor ??= 'system';
+            if ($order->isNewLicense()) {
+                $this->licenses->revokeForRefund($license, $reason, $actor);
+            } else {
+                // Renewals/upgrades: recorded; an admin decides what to undo on the license page.
+                $this->licenses->event($license, 'order_refunded', ['order' => $order->number, 'kind' => $order->kind, 'reason' => $reason], $actor);
             }
         }
-    }
-
-    public function refundInBilling(Order $order, \App\Models\Invoice $invoice): void
-    {
-        try {
-            $ok = $this->billing->recordRefund($order, $invoice);
-        } catch (\Throwable $e) {
-            Log::error('Billing refund failed', ['order' => $order->number, 'error' => $e->getMessage()]);
-            $ok = false;
-        }
-        $ok ? $this->clearFlag($order->fresh())
-            : $this->flag($order, 'revoke', 'Billing didn’t record this refund yet. Retry, or revoke the license in billing.twsd.me.');
-    }
-
-    /** Retry whatever billing step is outstanding for an order (admin "Retry in billing"). */
-    public function retry(Order $order): void
-    {
-        $order->refresh();
-        if (! $order->billing_license_id) {
-            $this->report($order, $order->isPaid() ? 'paid' : 'pending');
-
-            return;
-        }
-        match ($order->meta['billing_action'] ?? null) {
-            'confirm_payment' => $order->invoice ? $this->confirmInBilling($order, $order->invoice) : null,
-            'revoke' => $order->invoice ? $this->refundInBilling($order, $order->invoice) : null,
-            default => null,
-        };
-    }
-
-    /** Something billing couldn't do automatically; shown to admins in /admin/orders. */
-    private function flag(Order $order, string $action, string $message): void
-    {
-        $order->update(['meta' => array_merge($order->fresh()->meta ?? [], ['billing_action' => $action, 'billing_error' => $message])]);
-    }
-
-    public function clearFlag(Order $order): void
-    {
-        $meta = $order->meta ?? [];
-        unset($meta['billing_action'], $meta['billing_error']);
-        $order->update(['meta' => $meta]);
     }
 }

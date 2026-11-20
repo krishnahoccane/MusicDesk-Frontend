@@ -1,0 +1,267 @@
+<?php
+
+namespace App\Licensing;
+
+use App\Models\License;
+use App\Models\LicenseActivation;
+use Illuminate\Support\Facades\DB;
+
+/**
+ * Domains and installs. Rules:
+ *  - production activations (pending + active) ≤ included + extra domains
+ *  - staging is free: staging.*, dev.*, test.*, *.test, *.local, *.localhost, localhost, or environment=staging
+ *  - domains are normalised (lowercase, no scheme / path / port / www.)
+ *  - a domain can be live on one license only
+ *  - max 3 domain moves per license in 30 days
+ */
+class ActivationService
+{
+    public const MAX_MOVES_PER_30_DAYS = 3;
+
+    public function __construct(private LicenseService $licenses, private LicenseToken $tokens) {}
+
+    public static function normalise(string $domain): string
+    {
+        $d = strtolower(trim($domain));
+        $d = (string) preg_replace('#^[a-z][a-z0-9+.-]*://#', '', $d);
+        $d = (string) preg_replace('#[/?\#].*$#', '', $d);
+        $d = (string) preg_replace('#:\d+$#', '', $d);
+        $d = (string) preg_replace('/^www\./', '', $d);
+
+        return rtrim($d, '.');
+    }
+
+    public static function isStaging(string $domain): bool
+    {
+        return $domain === 'localhost'
+            || (bool) preg_match('/^(staging|dev|test)\.|\.(test|local|localhost|invalid)$/', $domain)
+            || (bool) filter_var($domain, FILTER_VALIDATE_IP);
+    }
+
+    public static function validDomain(string $domain): bool
+    {
+        return $domain === 'localhost' || (bool) filter_var($domain, FILTER_VALIDATE_IP)
+            || (bool) preg_match('/^(?=.{1,253}$)([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z][a-z0-9-]{0,62}$/', $domain);
+    }
+
+    /** Pre-approve a domain (portal "Add domain" / admin). */
+    public function add(License $license, string $domain, ?string $environment, string $actor): LicenseActivation
+    {
+        return DB::transaction(function () use ($license, $domain, $environment, $actor) {
+            $license = License::query()->whereKey($license->id)->lockForUpdate()->firstOrFail();
+            [$domain, $env] = $this->checkNew($license, $domain, $environment);
+
+            $activation = $license->activations()->create(['domain' => $domain, 'environment' => $env, 'status' => LicenseActivation::PENDING]);
+            $this->licenses->event($license, 'domain_added', ['domain' => $domain, 'environment' => $env], $actor);
+
+            return $activation;
+        });
+    }
+
+    public function move(LicenseActivation $activation, string $newDomain, string $actor): LicenseActivation
+    {
+        return DB::transaction(function () use ($activation, $newDomain, $actor) {
+            $license = License::query()->whereKey($activation->license_id)->lockForUpdate()->firstOrFail();
+            $moves = $license->events()->where('event', 'domain_moved')->where('created_at', '>=', now()->subDays(30))->count();
+            if ($moves >= self::MAX_MOVES_PER_30_DAYS) {
+                throw new LicenseException('move_limit_reached', 'This license has reached its limit of 3 domain moves in 30 days.');
+            }
+
+            $old = $activation->domain;
+            $activation->update(['status' => LicenseActivation::DEACTIVATED, 'deactivated_at' => now()]);
+            [$domain, $env] = $this->checkNew($license, $newDomain, $activation->environment);
+            $new = $license->activations()->create(['domain' => $domain, 'environment' => $env, 'status' => LicenseActivation::PENDING]);
+            $this->licenses->event($license, 'domain_moved', ['from' => $old, 'to' => $domain], $actor);
+
+            return $new;
+        });
+    }
+
+    public function deactivate(LicenseActivation $activation, string $actor): void
+    {
+        if ($activation->status === LicenseActivation::DEACTIVATED) {
+            return;
+        }
+        $activation->update(['status' => LicenseActivation::DEACTIVATED, 'deactivated_at' => now()]);
+        $this->licenses->event($activation->license, 'domain_deactivated', ['domain' => $activation->domain], $actor);
+    }
+
+    public function requestCheckIn(LicenseActivation $activation, string $actor): void
+    {
+        $activation->update(['check_in_requested' => true]);
+        $this->licenses->event($activation->license, 'check_in_requested', ['domain' => $activation->domain], $actor);
+    }
+
+    // ------------------------------------------------------------ License server (LabelDesk installs)
+
+    /** POST /api/license/v1/activate */
+    public function activateInstall(string $key, array $install, ?string $ip): array
+    {
+        $license = $this->licenses->findByKey($key) ?? throw new LicenseException('invalid_key', 'License key not recognised.', 404);
+        $this->requireUsable($license);
+
+        $domain = self::normalise((string) ($install['domain'] ?? ''));
+        if (! self::validDomain($domain)) {
+            throw new LicenseException('invalid_domain', 'That is not a valid domain.', 422, 'domain');
+        }
+
+        $activation = DB::transaction(function () use ($license, $domain, $install, $ip) {
+            $license = License::query()->whereKey($license->id)->lockForUpdate()->firstOrFail();
+            $existing = $license->activations()->where('domain', $domain)->where('status', '!=', LicenseActivation::DEACTIVATED)->first();
+
+            if (! $existing) {
+                [$domain, $env] = $this->checkNew($license, $domain, $install['environment'] ?? null);
+                $existing = $license->activations()->create(['domain' => $domain, 'environment' => $env, 'status' => LicenseActivation::PENDING]);
+            }
+
+            $first = $existing->status !== LicenseActivation::ACTIVE;
+            $existing->fill([
+                'status' => LicenseActivation::ACTIVE,
+                'activated_at' => $existing->activated_at ?? now(),
+                'instance_id' => isset($install['instance_id']) ? substr((string) $install['instance_id'], 0, 100) : $existing->instance_id,
+            ])->save();
+            $this->record($existing, $install, $ip);
+            if ($first) {
+                $this->licenses->event($license, 'domain_activated', ['domain' => $existing->domain], 'license server');
+            }
+
+            return $existing;
+        });
+
+        return $this->response($license->fresh(), $activation);
+    }
+
+    /** POST /api/license/v1/check-in */
+    public function checkIn(string $token, array $install, ?string $ip): array
+    {
+        [$license, $activation] = $this->fromToken($token, allowExpired: true);
+        $this->requireUsable($license);
+        $this->record($activation, $install, $ip);
+        $activation->update(['check_in_requested' => false]);
+
+        return $this->response($license, $activation->fresh());
+    }
+
+    /** POST /api/license/v1/deactivate */
+    public function deactivateInstall(string $token): void
+    {
+        [, $activation] = $this->fromToken($token, allowExpired: true);
+        $this->deactivate($activation, 'license server');
+    }
+
+    /** Offline activation for servers without internet: a token valid 365 days, delivered as a file. */
+    public function offlineActivation(License $license, string $domain, ?string $instanceId, string $actor): array
+    {
+        $this->requireUsable($license);
+        $domain = self::normalise($domain);
+        if (! self::validDomain($domain)) {
+            throw new LicenseException('invalid_domain', 'That is not a valid domain.', 422, 'domain');
+        }
+
+        $activation = DB::transaction(function () use ($license, $domain, $instanceId) {
+            $existing = $license->activations()->where('domain', $domain)->where('status', '!=', LicenseActivation::DEACTIVATED)->first();
+            if (! $existing) {
+                [$domain, $env] = $this->checkNew($license, $domain, null);
+                $existing = $license->activations()->create(['domain' => $domain, 'environment' => $env, 'status' => LicenseActivation::PENDING]);
+            }
+            $existing->update(['status' => LicenseActivation::ACTIVE, 'activated_at' => $existing->activated_at ?? now(), 'instance_id' => $instanceId ?: $existing->instance_id]);
+
+            return $existing;
+        });
+        $this->licenses->event($license, 'offline_activation', ['domain' => $activation->domain], $actor);
+
+        return ['token' => $this->tokenFor($license, $activation, LicenseToken::OFFLINE_TTL_DAYS), 'activation' => $activation];
+    }
+
+    // ------------------------------------------------------------ helpers
+
+    /** @return array{0: string, 1: string} normalised domain and environment */
+    private function checkNew(License $license, string $domain, ?string $environment): array
+    {
+        $domain = self::normalise($domain);
+        if (! self::validDomain($domain)) {
+            throw new LicenseException('invalid_domain', 'Enter a domain like portal.yourlabel.com.', 422, 'domain');
+        }
+        $env = $environment === 'staging' || self::isStaging($domain) ? 'staging' : 'production';
+
+        if ($license->activations()->where('domain', $domain)->where('status', '!=', LicenseActivation::DEACTIVATED)->exists()) {
+            throw new LicenseException('domain_exists', 'That domain is already on this license.');
+        }
+        $elsewhere = LicenseActivation::query()->where('domain', $domain)->where('status', '!=', LicenseActivation::DEACTIVATED)
+            ->where('license_id', '!=', $license->id)->exists();
+        if ($elsewhere) {
+            throw new LicenseException('domain_in_use', 'That domain is already active on another license.');
+        }
+        if ($env === 'production' && $license->domainsUsed() >= $license->domainLimit()) {
+            throw new LicenseException('domain_limit_reached', 'All '.$license->domainLimit().' production domains on this license are in use. Deactivate one or buy an extra domain.');
+        }
+
+        return [$domain, $env];
+    }
+
+    private function requireUsable(License $license): void
+    {
+        if (! $license->allowsUse()) {
+            $status = $license->displayStatus();
+            throw new LicenseException('license_'.$status, 'This license is '.$status.($license->status_reason ? ': '.$license->status_reason : '.'), 403);
+        }
+    }
+
+    private function record(LicenseActivation $activation, array $install, ?string $ip): void
+    {
+        $activation->update(array_filter([
+            'version' => isset($install['version']) ? substr((string) $install['version'], 0, 20) : null,
+            'php_version' => isset($install['php_version']) ? substr((string) $install['php_version'], 0, 20) : null,
+            'ip' => $ip,
+            'last_check_in_at' => now(),
+        ], fn ($v) => $v !== null));
+    }
+
+    /** @return array{0: License, 1: LicenseActivation} */
+    private function fromToken(string $token, bool $allowExpired): array
+    {
+        $claims = $this->tokens->verify($token, $allowExpired);
+        $activation = LicenseActivation::query()->where('uuid', $claims['act'] ?? '')->with('license')->first();
+        if (! $activation || $activation->license?->uuid !== ($claims['lic'] ?? null)) {
+            throw new LicenseException('activation_not_found', 'This install is not activated. Activate it again with the license key.', 404);
+        }
+        if ($activation->status === LicenseActivation::DEACTIVATED) {
+            throw new LicenseException('activation_deactivated', 'This domain was deactivated. Activate it again with the license key.', 403);
+        }
+
+        return [$activation->license, $activation];
+    }
+
+    private function tokenFor(License $license, LicenseActivation $activation, int $ttlDays = LicenseToken::TTL_DAYS): string
+    {
+        return $this->tokens->issue([
+            'lic' => $license->uuid,
+            'act' => $activation->uuid,
+            'dom' => $activation->domain,
+            'env' => $activation->environment,
+            'plan' => $license->plan?->code,
+            'status' => $license->displayStatus(),
+            'support_until' => $license->support_until?->timestamp,
+            'max_version' => $license->maxVersion(),
+        ], $ttlDays);
+    }
+
+    private function response(License $license, LicenseActivation $activation): array
+    {
+        $messages = [];
+        if ($license->displayStatus() === 'expired' && $license->billing_type === 'annual') {
+            $messages[] = 'Your annual license has expired. LabelDesk keeps working, but updates and support are paused until you renew.';
+        } elseif ($license->status === License::PENDING) {
+            $messages[] = 'Awaiting payment. This license works until '.$license->pending_until?->toDateString().'.';
+        }
+
+        return [
+            'token' => $this->tokenFor($license, $activation),
+            'status' => $license->displayStatus(),
+            'support_until' => $license->support_until?->utc()->format('Y-m-d\TH:i:s\Z'),
+            'max_version' => $license->maxVersion(),
+            'check_in_requested' => (bool) $activation->check_in_requested,
+            'messages' => $messages,
+        ];
+    }
+}

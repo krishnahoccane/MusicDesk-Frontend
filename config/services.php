@@ -35,13 +35,5 @@ return [
         ],
     ],
 
-    'wcc' => [
-        // billing.twsd.me — see docs/billing-integration.md
-        'enabled' => env('WCC_BILLING_ENABLED', false),
-        'url' => env('WCC_BILLING_URL', 'https://billing.twsd.me/api/v1/storefront'),
-        'key' => env('WCC_BILLING_KEY'),
-        'storefront' => env('WCC_BILLING_STOREFRONT', 'musicdesk'),
-        'webhook_secret' => env('WCC_BILLING_WEBHOOK_SECRET'),
-    ],
 
 ];

@@ -4,14 +4,14 @@
     <x-slot:heading>Overview</x-slot:heading>
     <x-slot:actions>
         <a href="{{ route('home') }}" target="_blank" class="btn btn-outline btn-sm"><x-icon name="globe" class="size-3.5"/> View site</a>
-        <a href="https://billing.twsd.me" target="_blank" rel="noopener" class="btn btn-outline btn-sm">billing.twsd.me <x-icon name="arrow-up-right" class="size-3.5"/></a>
+        <a href="{{ route('admin.licenses.create') }}" class="btn btn-primary btn-sm"><x-icon name="key" class="size-3.5"/> Issue license</a>
     </x-slot:actions>
 
     <div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <x-stat label="Revenue this month (≈ USD)" value="{{ '$'.number_format($revenueUsd, 0) }}" icon="wallet" color="#22d9a0"/>
         <x-stat label="Orders this month" value="{{ $ordersCount }}" icon="receipt" color="#7c5cff"/>
         <a href="{{ route('admin.orders', ['status' => 'awaiting_payment']) }}"><x-stat label="Awaiting bank transfer" value="{{ $awaiting }}" icon="alert" color="#ffb547"/></a>
-        <x-stat label="Organisations" value="{{ $orgs }}" icon="users" color="#ff3fd2"/>
+        <a href="{{ route('admin.licenses') }}"><x-stat label="Active licenses" value="{{ $licensesActive }}" icon="key" color="#ff3fd2"/></a>
     </div>
 
     <div class="mt-4 grid gap-4 lg:grid-cols-3">
@@ -30,13 +30,19 @@
                     <a href="{{ route('admin.currencies') }}" class="text-xs text-volt-300">Rates</a>
                 </li>
                 <li class="flex items-start gap-3">
-                    <span class="mt-1 size-2 rounded-full {{ config('services.wcc.enabled') ? 'bg-mint-400' : 'bg-amber-glow' }}"></span>
-                    <span class="flex-1"><span class="block text-ink-100">billing.twsd.me connection</span><span class="text-xs text-ink-500">{{ config('services.wcc.enabled') ? 'Live' : 'Local mode: keys are generated on this server (set WCC_BILLING_ENABLED=true)' }}</span></span>
+                    <span class="mt-1 size-2 rounded-full {{ $expiring ? 'bg-amber-glow' : 'bg-mint-400' }}"></span>
+                    <span class="flex-1"><span class="block text-ink-100">Renewals due (30 days)</span><span class="text-xs text-ink-500">{{ $expiring ? $expiring.' license(s). Customers get reminders at 30, 14 and 3 days.' : 'None due' }}</span></span>
+                    <a href="{{ route('admin.licenses', ['status' => 'expiring']) }}" class="text-xs text-volt-300">View</a>
                 </li>
                 <li class="flex items-start gap-3">
-                    <span class="mt-1 size-2 rounded-full {{ $unsynced ? 'bg-amber-glow' : 'bg-mint-400' }}"></span>
-                    <span class="flex-1"><span class="block text-ink-100">Orders recorded in billing</span><span class="text-xs text-ink-500">{{ $unsynced ? $unsynced.' order(s) need attention in Orders' : 'All recorded. New organisations appear in billing with their first order.' }}</span></span>
-                    @if ($unsynced)<a href="{{ route('admin.orders') }}" class="text-xs text-volt-300">Review</a>@endif
+                    <span class="mt-1 size-2 rounded-full {{ $pendingLicenses ? 'bg-amber-glow' : 'bg-mint-400' }}"></span>
+                    <span class="flex-1"><span class="block text-ink-100">Licenses awaiting payment</span><span class="text-xs text-ink-500">{{ $pendingLicenses ? $pendingLicenses.' on a 14-day grace period' : 'None' }}</span></span>
+                    <a href="{{ route('admin.licenses', ['status' => 'pending']) }}" class="text-xs text-volt-300">View</a>
+                </li>
+                <li class="flex items-start gap-3">
+                    <span class="mt-1 size-2 rounded-full {{ $latestRelease ? 'bg-mint-400' : 'bg-amber-glow' }}"></span>
+                    <span class="flex-1"><span class="block text-ink-100">Latest release</span><span class="text-xs text-ink-500">{{ $latestRelease ? 'v'.$latestRelease->version.($latestRelease->hasFile() ? '' : ' · package not uploaded') : 'No release published' }} · {{ $onlineInstalls }} install(s) online</span></span>
+                    <a href="{{ route('admin.releases') }}" class="text-xs text-volt-300">Releases</a>
                 </li>
             </ul>
         </div>

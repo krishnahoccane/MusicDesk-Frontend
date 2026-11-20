@@ -1,6 +1,6 @@
 @php
     use App\Support\Demo;
-    $latest = Demo::LATEST_VERSION;
+    $latest = \App\Models\Release::latestVersion();
     $domainsUsed = array_sum(array_column($licenses, 'domains_used'));
     $domainsTotal = array_sum(array_column($licenses, 'domains'));
     $priceOf = fn ($l, $factor = 1) => isset($l['price_currency']) ? fmt_money(round($l['price'] * $factor), $l['price_currency']) : money(round($l['price'] * $factor))['display'];
@@ -11,7 +11,7 @@
 <x-layouts.app title="Licenses" subtitle="License keys, activated domains, renewals and upgrades for LabelDesk.">
     <x-slot:eyebrow>Portal · Licensing</x-slot:eyebrow>
     <x-slot:actions>
-        <button class="btn btn-outline btn-sm" @click="$dispatch('open-offline')"><x-icon name="file" class="size-3.5"/> Offline activation</button>
+        <a href="#" @click.prevent="$dispatch('open-offline', {})" class="btn btn-outline btn-sm"><x-icon name="file" class="size-3.5"/> Offline activation</a>
         <button class="btn btn-primary btn-sm" @click="$dispatch('open-buy')"><x-icon name="plus" class="size-3.5"/> Buy license</button>
     </x-slot:actions>
 
@@ -31,7 +31,7 @@
         <div class="relative overflow-hidden rounded-2xl border border-amber-glow/25 bg-amber-glow/[0.06] p-5 sm:p-6">
             <div class="flex items-center gap-2 text-[13px] text-amber-glow"><x-icon name="alert" class="size-4"/> Renewal due</div>
             <div class="mt-3 text-[15px] font-medium text-white">{{ $expiring['id'] }} expires in {{ $expiring['days_left'] }} days</div>
-            <button class="btn btn-sm mt-3 bg-amber-glow text-ink-950 hover:brightness-110" @click="$dispatch('open-renew', { id: @js($expiring['id']), tier: @js($expiring['tier']), price: @js($priceOf($expiring)), label: 'Renew annual license' })">Renew for {{ $priceOf($expiring) }}</button>
+            <a href="{{ route('licenses.buy', [$expiring['uid'], 'renewal']) }}" class="btn btn-sm mt-3 bg-amber-glow text-ink-950 hover:brightness-110">Renew now</a>
         </div>
         @else
         <a href="{{ route('pricing') }}" class="card card-pad group">
@@ -53,7 +53,7 @@
             @php $supportExpired = $l['support_expired'] ?? false; @endphp
             <div class="card overflow-hidden" x-data="{ open: {{ $idx === 0 ? 'true' : 'false' }}, tab: 'domains', reveal: false, key: null, busy: false,
                     installs: {{ json_encode($l['installations']) }}, max: {{ max(1, $l['domains']) }},
-                    base: @js(isset($l['billing_id']) ? url('/dashboard/licenses/'.$l['billing_id']) : null),
+                    base: @js(url('/dashboard/licenses/'.$l['uid'])),
                     async fetchKey() { if (!this.key) { this.key = (await portalApi(this.base + '/reveal')).key } return this.key },
                     async toggleReveal() { if (!this.reveal) { await this.fetchKey() } this.reveal = !this.reveal },
                     async copyKey() { this.$copy(await this.fetchKey()) },
@@ -77,7 +77,7 @@
                             <div class="mt-1.5 flex items-center gap-2">
                                 @php $masked = ($l['key_masked'] ?? false) ? $l['key'] : ($l['key'] ? substr($l['key'], 0, 5).'••••-••••-••••-'.substr($l['key'], -4) : 'Key being generated…'); @endphp
                                 <code class="font-mono text-[13px] tracking-wider text-ink-300" x-text="reveal && key ? key : @js($masked)">{{ $masked }}</code>
-                                @if (isset($l['billing_id']))
+                                @if (true)
                                 <button @click="toggleReveal()" class="text-ink-500 hover:text-white" :aria-label="reveal ? 'Hide key' : 'Reveal key'" title="Reveal key (recorded in the license history)"><x-icon name="eye" class="size-3.5"/></button>
                                 <button @click="copyKey()" class="text-ink-500 hover:text-white" aria-label="Copy key"><x-icon name="copy" class="size-3.5"/></button>
                                 @endif
@@ -94,7 +94,7 @@
                         <div>
                             <div class="text-[11px] text-ink-500">{{ $l['renews'] ? 'Renews' : 'Updates until' }}</div>
                             <div class="mt-1 text-sm font-medium {{ $l['status'] === 'expiring' || $supportExpired ? 'text-amber-glow' : 'text-white' }}">{{ $l['renews'] ?? $l['support_until'] }}</div>
-                            <div class="mt-2 text-[11px] text-ink-500">{{ $l['renews'] ? ($l['auto_renew'] ? 'Auto-renew on' : 'Auto-renew off') : 'Lifetime license' }}</div>
+                            <div class="mt-2 text-[11px] text-ink-500">{{ $l['renews'] ? ($l['auto_renew'] ? 'Reminders on' : 'Reminders off') : 'Lifetime license' }}</div>
                         </div>
                         <div>
                             <div class="text-[11px] text-ink-500">Paid</div>
@@ -108,20 +108,21 @@
                             <button @click="m = !m" class="btn btn-outline btn-sm !px-2" aria-label="License actions"><x-icon name="more"/></button>
                             <div x-show="m" x-cloak @click.outside="m = false" x-transition.origin.top.right class="absolute right-0 z-20 mt-2 w-60 rounded-2xl glass !bg-ink-900/95 p-1.5 shadow-2xl shadow-black/60">
                                 @if ($l['type'] === 'Lifetime')
-                                    <button class="nav-link w-full" @click="m = false; $dispatch('open-renew', { id: '{{ $l['id'] }}', tier: '{{ $l['tier'] }}', price: @js($priceOf($l, 0.6)), label: 'Renew updates & support (40% off)' })"><x-icon name="refresh"/> Renew updates (40% off)</button>
+                                    <a href="{{ route('licenses.buy', [$l['uid'], 'updates_renewal']) }}" class="nav-link w-full"><x-icon name="refresh"/> Renew updates (40% off)</a>
                                 @else
-                                    <button class="nav-link w-full" @click="m = false; $dispatch('open-renew', { id: '{{ $l['id'] }}', tier: '{{ $l['tier'] }}', price: @js($priceOf($l)), label: 'Renew annual license' })"><x-icon name="refresh"/> Renew now</button>
-                                    <button class="nav-link w-full" @click="m = false; $dispatch('open-lifetime', { id: '{{ $l['id'] }}', tier: '{{ $l['tier'] }}' })"><x-icon name="zap"/> Switch to lifetime</button>
+                                    <a href="{{ route('licenses.buy', [$l['uid'], 'renewal']) }}" class="nav-link w-full"><x-icon name="refresh"/> Renew now</a>
+                                    <a href="{{ route('licenses.buy', [$l['uid'], 'convert_lifetime']) }}" class="nav-link w-full"><x-icon name="zap"/> Switch to lifetime</a>
                                 @endif
-                                <button class="nav-link w-full" @click="m = false; $dispatch('open-upgrade', { id: '{{ $l['id'] }}', tier: '{{ $l['tier'] }}' })"><x-icon name="layers"/> Upgrade tier</button>
-                                <button class="nav-link w-full" @click="m = false; $dispatch('open-slots', { id: '{{ $l['id'] }}', tier: '{{ $l['tier'] }}' })"><x-icon name="plus"/> Buy extra domains</button>
-                                <button class="nav-link w-full" @click="m = false; toast('License certificate downloaded')"><x-icon name="file"/> License certificate (PDF)</button>
+                                <a href="{{ route('licenses.buy', [$l['uid'], 'change_plan']) }}" class="nav-link w-full"><x-icon name="layers"/> Upgrade tier</a>
+                                <a href="{{ route('licenses.buy', [$l['uid'], 'extra_domains']) }}" class="nav-link w-full"><x-icon name="plus"/> Buy extra domains</a>
+                                <a href="{{ route('dashboard.licenses.certificate', $l['uid']) }}" class="nav-link w-full"><x-icon name="file"/> License certificate (PDF)</a>
+                                <button class="nav-link w-full" @click="m = false; $dispatch('open-offline', { uid: @js($l['uid']), id: @js($l['id']) })"><x-icon name="upload"/> Offline activation</button>
                                 @if ($l['renews'] && ! $l['auto_renew'])
-                                    <button class="nav-link w-full" @click="m = false; autoRenew(true)"><x-icon name="refresh"/> Turn on auto-renew</button>
+                                    <button class="nav-link w-full" @click="m = false; autoRenew(true)"><x-icon name="refresh"/> Turn on renewal reminders</button>
                                 @endif
                                 @if ($l['renews'] && $l['auto_renew'])
                                     <div class="my-1 border-t hairline"></div>
-                                    <button class="nav-link w-full !text-coral-400" @click="m = false; autoRenew(false)"><x-icon name="ban"/> Turn off auto-renew</button>
+                                    <button class="nav-link w-full !text-coral-400" @click="m = false; autoRenew(false)"><x-icon name="ban"/> Turn off renewal reminders</button>
                                 @endif
                             </div>
                         </div>
@@ -148,7 +149,7 @@
                     <div class="mx-5 mb-5 flex flex-col gap-3 rounded-xl border border-amber-glow/20 bg-amber-glow/[0.05] p-4 text-sm sm:mx-6 sm:flex-row sm:items-center">
                         <x-icon name="alert" class="size-4 text-amber-glow"/>
                         <span class="flex-1 text-ink-200">This lifetime license still works, but it can’t install versions released after {{ $l['support_until'] }}. The latest version is v{{ $latest }}.</span>
-                        <button class="btn btn-sm shrink-0 bg-amber-glow text-ink-950 hover:brightness-110" @click="$dispatch('open-renew', { id: '{{ $l['id'] }}', tier: '{{ $l['tier'] }}', price: @js($priceOf($l, 0.6)), label: 'Renew updates & support (40% off)' })">Renew updates for {{ $priceOf($l, 0.6) }}</button>
+                        <a href="{{ route('licenses.buy', [$l['uid'], 'updates_renewal']) }}" class="btn btn-sm shrink-0 bg-amber-glow text-ink-950 hover:brightness-110">Renew updates (40% off)</a>
                     </div>
                 @endif
 
@@ -210,7 +211,7 @@
                                     'License ID' => $l['id'], 'Product' => $l['product'].' '.$l['tier'],
                                     'License type' => $l['type'], 'Purchased' => $l['purchased'],
                                     'Price paid' => $priceOf($l), 'Updates & support until' => $l['support_until'],
-                                    'Auto-renew' => $l['renews'] ? ($l['auto_renew'] ? 'On · Visa ••4242' : 'Off') : 'Not applicable', 'Licensed to' => auth()->user()->organisation?->name,
+                                    'Renewal reminders' => $l['renews'] ? ($l['auto_renew'] ? 'On' : 'Off') : 'Not applicable', 'Licensed to' => auth()->user()->organisation?->name,
                                 ] as $k => $v)
                                     <div><dt class="text-xs text-ink-500">{{ $k }}</dt><dd class="mt-0.5 text-ink-100">{{ $v }}</dd></div>
                                 @endforeach
