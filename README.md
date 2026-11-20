@@ -5,14 +5,29 @@ Client, subscription and license administration lives in **billing.twsd.me** (se
 
 Laravel 13 · Blade · Tailwind CSS v4 · Alpine.js (no React) · SQLite by default (any Laravel DB works)
 
-## Run locally
+## Install on a server (web installer)
+
+1. Upload the code, then run `composer install --no-dev --optimize-autoloader` and `npm ci && npm run build` (or upload `vendor/` and `public/build/`).
+2. Point the web server at `public/`. Make `storage/`, `bootstrap/cache/` and the application folder (for `.env`) writable.
+3. Open the site. Every page goes to **`/install`** until installation is finished:
+   1. **Prerequisites:** PHP 8.3+, required extensions, a PDO driver, writable folders, built assets.
+   2. **Database:** MySQL, MariaDB, PostgreSQL or SQLite. Tests the connection, then runs the migrations and loads reference data (currencies, plans, add-ons, legal page templates; payment gateways start switched off). No demo accounts.
+   3. **Redis (optional):** tests the connection and chooses what uses it (cache, sessions, queue), or skip to keep them in the database. Works with the phpredis extension or the bundled predis client.
+   4. **Email (SMTP):** signs in to your SMTP server to check the credentials, and can send a test email.
+   5. **Super admin:** site name, site URL and your admin account. Production mode is on by default (`APP_ENV=production`, `APP_DEBUG=false`).
+4. After step 5 the installer is gone (`/install` returns 404) and you sign in at `/login`. Then add payment gateway keys in `/admin/gateways` and add a cron entry: `* * * * * php /path/to/artisan schedule:run`.
+
+Each step writes `.env` as it goes, and the `APP_KEY` is generated automatically if missing. Installation is recorded in `storage/app/installed.json`. To run the installer again, delete that file. `APP_INSTALLED=true|false` in `.env` overrides the file.
+
+## Run locally (development)
 
 ```bash
 composer install && npm install
 cp .env.example .env && php artisan key:generate   # first time only
-php artisan migrate --seed
+php artisan migrate --seed       # reference data + demo accounts
 php artisan storage:link
 npm run build            # or: npm run dev
+php -r "file_put_contents('storage/app/installed.json', '{}');"   # skip the web installer locally
 php artisan serve
 php artisan schedule:work   # optional: runs the daily exchange-rate update
 ```
