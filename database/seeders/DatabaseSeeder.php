@@ -8,6 +8,8 @@ use App\Models\PaymentGateway;
 use App\Models\User;
 use App\Licensing\LicenseService;
 use App\Models\License;
+use App\Models\LicenseAlert;
+use App\Models\SupportTicket;
 use App\Models\Plan;
 use App\Models\Release;
 use App\Support\Demo;
@@ -33,6 +35,8 @@ class DatabaseSeeder extends Seeder
         $this->users();
         $this->releases();
         $this->licenses();
+        $this->support();
+        $this->securityAlerts();
     }
 
     /** Enables bank transfer with placeholder details so checkout works locally without gateway keys. */
@@ -139,6 +143,81 @@ class DatabaseSeeder extends Seeder
             'purchased_at' => now()->subYear()->addDays(11),
         ], 'seed');
         $this->activate($expiring, [['releases.driftrecords.net', 'production', '4.3.0', 12]]);
+    }
+
+    /** Demo tickets in each state, written directly (no emails). */
+    private function support(): void
+    {
+        $org = Organisation::where('email', Demo::DEMO_ORG_EMAIL)->firstOrFail();
+        if (SupportTicket::where('organisation_id', $org->id)->exists()) {
+            return;
+        }
+        $customer = User::where('email', 'demo@lowtide.test')->firstOrFail();
+        $admin = User::where('email', 'admin@musicdesk.test')->firstOrFail();
+        $main = $org->licenses()->where('billing_type', 'annual')->whereHas('plan', fn ($q) => $q->where('code', 'business'))->first();
+        $legacy = $org->licenses()->where('billing_type', 'lifetime')->first();
+
+        $tickets = [
+            [$main, 'music.lowtide.com', 'updating', 'normal', 'Upgrade from 4.2.1 to 4.3.0 on sub-domain install', 'open', 35, [
+                [false, 'After running the updater on artists.lowtide.com we get a 500 on /admin/statements. Staging worked fine.', 190],
+                [true, 'Thanks, Nova. 4.3.0 adds a new queue for FX rates. Could you run `php artisan queue:restart` and clear the config cache? That fixes it in every case we\'ve seen so far.', 120],
+                [false, 'Restarted the queue and cleared the cache, still a 500. Log excerpt attached in the next message if needed.', 35],
+            ]],
+            [$main, 'portal.northbeat.fm', 'branding', 'low', 'Custom SMTP sender shows "via" in Gmail', 'awaiting', 60 * 26, [
+                [false, 'Emails from portal.northbeat.fm show "via sendgrid.net" in Gmail. Can we fix that?', 60 * 50],
+                [true, 'That label comes from SPF/DKIM alignment. Add the CNAME records SendGrid gives you for northbeat.fm, then send a test from Settings > Mail. Let us know once the DNS has propagated.', 60 * 26],
+            ]],
+            [$legacy, 'labels.sunsetwax.co', 'licensing', 'normal', 'Move license to a new server', 'resolved', 60 * 24 * 13, [
+                [false, 'We are moving labels.sunsetwax.co to a new host next week. Do we need a new key?', 60 * 24 * 15],
+                [true, 'No new key needed. Deactivate the old install from Licenses > Domains, then run the installer on the new server with the same key.', 60 * 24 * 14],
+                [false, 'Done, all working. Thanks!', 60 * 24 * 13],
+            ]],
+        ];
+
+        foreach ($tickets as $i => [$license, $domain, $category, $priority, $subject, $status, $minutes, $messages]) {
+            $ticket = SupportTicket::create([
+                'number' => 'TCK-'.(4801 + $i), 'organisation_id' => $org->id, 'user_id' => $customer->id, 'license_id' => $license?->id,
+                'domain' => $domain, 'category' => $category, 'priority' => $priority, 'subject' => $subject, 'status' => $status,
+                'assigned_to' => $admin->id, 'last_reply_at' => now()->subMinutes($minutes),
+                'resolved_at' => $status === 'resolved' ? now()->subMinutes($minutes) : null,
+                'created_at' => now()->subMinutes($messages[0][2]),
+            ]);
+            foreach ($messages as [$staff, $body, $ago]) {
+                $ticket->messages()->create([
+                    'user_id' => $staff ? $admin->id : $customer->id, 'author_name' => $staff ? 'Priya Shah' : $customer->name,
+                    'from_staff' => $staff, 'body' => $body, 'created_at' => now()->subMinutes($ago),
+                ]);
+            }
+        }
+        $first = SupportTicket::where('number', 'TCK-4801')->first();
+        $first?->messages()->create([
+            'user_id' => $admin->id, 'author_name' => 'Priya Shah', 'from_staff' => true, 'internal' => true,
+            'body' => 'Probably the statements cache table migration. Ask for storage/logs/laravel.log if the next reply has no log.', 'created_at' => now()->subMinutes(30),
+        ]);
+    }
+
+    /** Demo security alerts: an unknown (likely nulled) install, a revoked-key reuse, and a blocked domain. */
+    private function securityAlerts(): void
+    {
+        if (LicenseAlert::exists()) {
+            return;
+        }
+        $legacy = License::where('billing_type', 'lifetime')->first();
+        $rows = [
+            ['crackedlabel-demo.example', 'open', 'no_license', ['no_license' => 14, 'signature_invalid' => 3], 17, 'install', null, '4.3.0', 'License file missing; core check bypass detected.', 40],
+            ['records.unknown-label.example', 'open', 'invalid_key', ['invalid_key' => 4], 4, 'server', null, '4.2.1', 'Refused by the license server: License key not recognised.', 60 * 5],
+            ['labels-mirror.sunsetwax.example', 'open', 'domain_mismatch', ['domain_mismatch' => 6], 6, 'install', $legacy, '4.1.0', 'Token issued for labels.sunsetwax.co', 60 * 20],
+            ['nulled-scripts.example', 'blocked', 'signature_invalid', ['signature_invalid' => 52], 52, 'install', null, '4.2.0', 'License signature invalid.', 60 * 24 * 2],
+        ];
+        foreach ($rows as $i => [$domain, $status, $reason, $reasons, $attempts, $source, $license, $version, $message, $ago]) {
+            LicenseAlert::create([
+                'domain' => $domain, 'status' => $status, 'license_id' => $license?->id, 'last_reason' => $reason, 'reasons' => $reasons,
+                'attempts' => $attempts, 'source' => $source, 'ip' => '198.51.100.'.(10 + $i), 'version' => $version, 'php_version' => '8.2.'.(5 + $i),
+                'message' => $message, 'first_seen_at' => now()->subMinutes($ago + 60 * 24 * 3), 'last_seen_at' => now()->subMinutes($ago),
+                'notified_at' => now()->subMinutes($ago), 'resolved_at' => $status === 'blocked' ? now()->subDays(2) : null,
+                'resolved_by' => $status === 'blocked' ? 'Site Admin (admin)' : null, 'note' => $status === 'blocked' ? 'Nulled copy shared on a forum.' : null,
+            ]);
+        }
     }
 
     /** @param  array<int, array{0: string, 1: string, 2: string, 3: int}>  $installs  domain, env, version, minutes since check-in */

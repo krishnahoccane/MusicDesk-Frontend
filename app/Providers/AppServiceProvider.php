@@ -19,6 +19,7 @@ class AppServiceProvider extends ServiceProvider
     {
         // License server: 30 requests a minute per IP.
         \Illuminate\Support\Facades\RateLimiter::for('license-server', fn (\Illuminate\Http\Request $r) => \Illuminate\Cache\RateLimiting\Limit::perMinute(30)->by('license:'.$r->ip()));
+        \Illuminate\Support\Facades\RateLimiter::for('license-report', fn (\Illuminate\Http\Request $r) => \Illuminate\Cache\RateLimiting\Limit::perMinute(10)->by('license-report:'.$r->ip()));
 
         // Web installer: before installation, make sure .env/APP_KEY exist and keep
         // sessions, cache and queue off the (not yet configured) database.

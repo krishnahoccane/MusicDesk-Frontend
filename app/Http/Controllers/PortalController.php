@@ -8,6 +8,7 @@ use App\Models\License;
 use App\Models\Organisation;
 use App\Models\Plan;
 use App\Models\Release;
+use App\Models\SupportTicket;
 use App\Services\Orders\InvoiceService;
 use App\Support\Demo;
 use Illuminate\Http\RedirectResponse;
@@ -32,10 +33,11 @@ class PortalController extends Controller
         return Invoice::query()->where('organisation_id', $request->user()->organisation_id)->latest('issued_at')->get();
     }
 
-    /** Support tickets: sample data for the seeded demo organisation until a helpdesk is connected. */
-    private function tickets(Request $request): array
+    /** Latest support tickets, unresolved first. */
+    private function tickets(Request $request)
     {
-        return $this->org($request)?->email === Demo::DEMO_ORG_EMAIL ? Demo::tickets() : [];
+        return SupportTicket::query()->where('organisation_id', $request->user()->organisation_id)
+            ->orderByRaw("case status when 'resolved' then 1 else 0 end")->latest('last_reply_at')->limit(3)->get();
     }
 
     public function index(Request $request): View
@@ -89,11 +91,6 @@ class PortalController extends Controller
     public function billingPage(Request $request): View
     {
         return view('dashboard.billing', ['licenses' => $this->licenses($request), 'invoices' => $this->invoices($request), 'org' => $this->org($request)]);
-    }
-
-    public function support(Request $request): View
-    {
-        return view('dashboard.support', ['tickets' => $this->tickets($request), 'licenses' => $this->licenses($request)]);
     }
 
     public function settings(Request $request): View

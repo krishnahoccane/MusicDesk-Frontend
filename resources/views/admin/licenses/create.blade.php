@@ -4,6 +4,13 @@
     <form method="POST" action="{{ route('admin.licenses.store') }}" class="grid max-w-4xl gap-4"
           x-data="{ existing: @js(old('organisation_id', $selected) ? true : ($organisations->isNotEmpty())), sale: {{ old('record_sale') ? 'true' : 'false' }} }">
         @csrf
+        @if ($alert)
+            <input type="hidden" name="alert_id" value="{{ $alert->id }}">
+            <div class="flex items-start gap-3 rounded-2xl border border-amber-glow/25 bg-amber-glow/[0.06] p-4 text-sm">
+                <x-icon name="shield" class="mt-0.5 size-4 shrink-0 text-amber-glow"/>
+                <div class="text-ink-200">Issuing a license for <b class="text-white">{{ $alert->domain }}</b>, which failed its license check {{ $alert->attempts }} {{ Str::plural('time', $alert->attempts) }} ({{ \App\Models\LicenseAlert::reasonLabel($alert->last_reason) }}). The security alert is closed when you save.</div>
+            </div>
+        @endif
         <section class="card card-pad space-y-4">
             <div class="flex items-center justify-between">
                 <h2 class="font-semibold text-white">Customer</h2>
@@ -35,7 +42,7 @@
             <div><label class="label" for="domains_extra">Extra production domains</label><input id="domains_extra" name="domains_extra" type="number" min="0" value="{{ old('domains_extra', 0) }}" class="input font-mono"></div>
             <div><label class="label" for="status">Start as</label>
                 <select id="status" name="status" class="input"><option value="active">Active</option><option value="pending" @selected(old('status') === 'pending')>Awaiting payment (works 14 days)</option></select></div>
-            <div class="sm:col-span-2"><label class="label" for="primary_domain">Primary domain <span class="text-ink-500">(optional)</span></label><input id="primary_domain" name="primary_domain" value="{{ old('primary_domain') }}" placeholder="portal.customer.com" class="input"></div>
+            <div class="sm:col-span-2"><label class="label" for="primary_domain">Primary domain <span class="text-ink-500">(optional)</span></label><input id="primary_domain" name="primary_domain" value="{{ old('primary_domain', $domain) }}" placeholder="portal.customer.com" class="input"></div>
             <div class="sm:col-span-2"><label class="label" for="notes">Internal note <span class="text-ink-500">(admins only)</span></label><textarea id="notes" name="notes" rows="2" class="input" placeholder="e.g. Partner comp approved by …">{{ old('notes') }}</textarea></div>
         </section>
 

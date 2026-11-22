@@ -7,6 +7,7 @@ use App\Http\Controllers\LicenseActionController;
 use App\Http\Controllers\LocaleController;
 use App\Http\Controllers\PageController;
 use App\Http\Controllers\PortalController;
+use App\Http\Controllers\SupportController;
 use App\Http\Controllers\WebhookController;
 use App\Models\Addon;
 use App\Models\Plan;
@@ -91,7 +92,11 @@ Route::middleware('auth')->prefix('dashboard')->name('dashboard')->group(functio
     Route::get('/downloads/{release}', [PortalController::class, 'download'])->middleware('throttle:20,1')->name('.downloads.file');
     Route::get('/billing', [PortalController::class, 'billingPage'])->name('.billing');
     Route::post('/billing/details', [PortalController::class, 'updateBillingDetails'])->name('.billing.details');
-    Route::get('/support', [PortalController::class, 'support'])->name('.support');
+    Route::get('/support', [SupportController::class, 'index'])->name('.support');
+    Route::post('/support', [SupportController::class, 'store'])->middleware('throttle:10,1')->name('.support.store');
+    Route::post('/support/{ticket:number}/reply', [SupportController::class, 'reply'])->middleware('throttle:20,1')->name('.support.reply');
+    Route::post('/support/{ticket:number}/status', [SupportController::class, 'status'])->name('.support.status');
+    Route::get('/support/{ticket:number}/files/{message}/{file}', [SupportController::class, 'attachment'])->name('.support.attachment');
     Route::get('/settings', [PortalController::class, 'settings'])->name('.settings');
     Route::post('/settings/profile', [PortalController::class, 'updateProfile'])->name('.settings.profile');
     Route::get('/invoices/{invoice:number}', [PortalController::class, 'invoiceView'])->name('.invoices.show');
@@ -100,7 +105,8 @@ Route::middleware('auth')->prefix('dashboard')->name('dashboard')->group(functio
 
 /*
 |--------------------------------------------------------------------------
-| Site admin: licenses, customers, releases, orders, invoices, payments
+| Site admin: licenses, security status, customers, releases, support,
+| orders, invoices, payments
 | and storefront settings.
 |--------------------------------------------------------------------------
 */
@@ -137,6 +143,10 @@ Route::middleware(['auth', 'admin'])->prefix('admin')->name('admin.')->group(fun
 
     // Licensing
     Route::get('/licenses', [Admin\LicenseAdminController::class, 'index'])->name('licenses');
+    Route::get('/licenses/status', [Admin\LicenseStatusController::class, 'index'])->name('license-status');
+    Route::post('/licenses/status/block', [Admin\LicenseStatusController::class, 'blockDomain'])->name('licenses.alerts.block-domain');
+    Route::post('/licenses/status/{alert}/block', [Admin\LicenseStatusController::class, 'block'])->name('licenses.alerts.block');
+    Route::put('/licenses/status/{alert}', [Admin\LicenseStatusController::class, 'update'])->name('licenses.alerts.update');
     Route::get('/licenses/create', [Admin\LicenseAdminController::class, 'create'])->name('licenses.create');
     Route::post('/licenses', [Admin\LicenseAdminController::class, 'store'])->name('licenses.store');
     Route::get('/licenses/{license}', [Admin\LicenseAdminController::class, 'show'])->name('licenses.show');
@@ -151,6 +161,12 @@ Route::middleware(['auth', 'admin'])->prefix('admin')->name('admin.')->group(fun
     Route::get('/customers', [Admin\CustomerAdminController::class, 'index'])->name('customers');
     Route::get('/customers/{organisation}', [Admin\CustomerAdminController::class, 'show'])->name('customers.show');
     Route::put('/customers/{organisation}', [Admin\CustomerAdminController::class, 'update'])->name('customers.update');
+
+    Route::get('/support', [Admin\SupportAdminController::class, 'index'])->name('support');
+    Route::get('/support/{ticket:number}', [Admin\SupportAdminController::class, 'show'])->name('support.show');
+    Route::post('/support/{ticket:number}/reply', [Admin\SupportAdminController::class, 'reply'])->name('support.reply');
+    Route::put('/support/{ticket:number}', [Admin\SupportAdminController::class, 'update'])->name('support.update');
+    Route::get('/support/{ticket:number}/files/{message}/{file}', [Admin\SupportAdminController::class, 'attachment'])->name('support.attachment');
 
     Route::get('/releases', [Admin\ReleaseAdminController::class, 'index'])->name('releases');
     Route::post('/releases', [Admin\ReleaseAdminController::class, 'store'])->name('releases.store');

@@ -46,6 +46,21 @@ class LicensingTest extends TestCase
         $this->assertSame('expiring', $this->license('starter', 'annual')->displayStatus());
     }
 
+    public function test_token_carries_the_license_expiry_for_labeldesk_lockout(): void
+    {
+        $annual = $this->license('business', 'annual');
+        $res = $this->postJson('/api/license/v1/activate', ['key' => $annual->key(), 'domain' => 'expiry.lowtide.test'])->assertOk();
+        $claims = json_decode(base64_decode(strtr(explode('.', $res->json('token'))[1], '-_', '+/')), true);
+        $this->assertSame($annual->expires_at->timestamp, $claims['expires']);
+        $this->assertSame($annual->expires_at->utc()->format('Y-m-d\TH:i:s\Z'), $res->json('expires_at'));
+
+        $lifetime = $this->license('starter', 'lifetime');
+        $res = $this->postJson('/api/license/v1/activate', ['key' => $lifetime->key(), 'domain' => 'lifetime.lowtide.test'])->assertOk();
+        $claims = json_decode(base64_decode(strtr(explode('.', $res->json('token'))[1], '-_', '+/')), true);
+        $this->assertArrayHasKey('expires', $claims);
+        $this->assertNull($claims['expires']);
+    }
+
     public function test_license_server_activate_check_in_and_deactivate(): void
     {
         $license = $this->license('business', 'annual');

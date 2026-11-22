@@ -15,3 +15,6 @@ Route::prefix('license/v1')->middleware('throttle:license-server')->name('licens
     Route::post('/deactivate', [LicenseServerController::class, 'deactivate'])->name('deactivate');
     Route::get('/public-key', [LicenseServerController::class, 'publicKey'])->name('public-key');
 });
+
+// Security webhook: LabelDesk installs report failed license checks here. 10/minute per IP.
+Route::post('license/v1/report', [LicenseServerController::class, 'report'])->middleware('throttle:license-report')->name('license.report');

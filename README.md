@@ -48,9 +48,9 @@ Change or remove these before deploying (`database/seeders/DatabaseSeeder.php`).
 | Sales site | `/`, `/pricing`, `/contact`, `/legal/{slug}` | Text, colors, fonts, plans, contact and legal pages are all editable in `/admin` |
 | Checkout | `/checkout/{plan}` → `/orders/{number}` | Creates the organisation, takes payment, issues the invoice and the license key |
 | License purchases | `/dashboard/licenses/{id}/buy/{kind}` | Renewal, updates renewal, extra domains, plan upgrade, switch to lifetime (prorated) |
-| Customer portal | `/dashboard/*` | Licenses (reveal key, domains, check-in, certificate, offline activation), downloads, billing & invoices, support, settings |
-| Site admin | `/admin/*` | Licenses, customers, releases, orders & invoices, branding, homepage text, pricing plans/add-ons/coupons, legal pages, contact & social, payment gateways, currencies, invoicing, localisation |
-| License server | `/api/license/v1/*` | Activate, check-in, deactivate, public key for LabelDesk installs (Ed25519-signed tokens) |
+| Customer portal | `/dashboard/*` | Licenses (reveal key, domains, check-in, certificate, offline activation), downloads, billing & invoices, support tickets, settings |
+| Site admin | `/admin/*` | Licenses, license status & security alerts, support tickets, customers, releases, orders & invoices, branding, homepage text, pricing plans/add-ons/coupons, legal pages, contact & social, payment gateways, currencies, invoicing, localisation |
+| License server | `/api/license/v1/*` | Activate, check-in, deactivate, public key for LabelDesk installs (Ed25519-signed tokens), and `/report`, the security webhook installs call when their license check fails |
 | Webhooks | `/webhooks/payments/{gateway}` | Signature-verified, idempotent |
 
 ## Key features
@@ -60,10 +60,12 @@ Change or remove these before deploying (`database/seeders/DatabaseSeeder.php`).
 - **Multi-currency:** USD default. Rates update daily (`php artisan currency:update-rates`, scheduled 00:05 UTC) from open.er-api.com or Frankfurter. Converted prices are rounded down to end in 9s within a 3% discount: $499 → ₹45,999 · £379 · €449.
 - **Time zones:** the app and database run in UTC. Each visitor’s time zone comes from their IP (ipapi.co / ipwho.is), falling back to their browser, and can be set in their profile. All dates are shown in local time.
 - **Licensing:** keys hashed + encrypted, reveals audited, domain limits with free staging, suspend / reinstate / revoke, full history, release downloads limited to the updates period, renewal reminders 30/14/3 days before expiry (`licenses:notify-expiring`, 08:00 UTC). Keep `APP_KEY` safe: it also protects the license signing key.
+- **Security alerts:** failed license checks (reported by LabelDesk or refused by the license server) are emailed to the site admins and listed under Licenses › Status, where a domain can be issued a license or blocked. See [docs/licensing.md](docs/licensing.md).
+- **Support tickets:** customers open tickets from the portal (license, domain, category, priority, attachments); admins answer from `/admin/support` with replies or internal notes. Both sides are emailed.
 
 ## Tests
 
 ```bash
 php artisan test
 ```
-Covers charm pricing, gateway signatures, checkout → invoice → license, the license server API, license purchases and refunds, domain limits, reminders, webhooks, admin access, theming and time zones. External HTTP is faked.
+Covers charm pricing, gateway signatures, checkout → invoice → license, the license server API, security reports and domain blocking, support tickets, license purchases and refunds, domain limits, reminders, webhooks, admin access, theming and time zones. External HTTP is faked.

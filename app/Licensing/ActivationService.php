@@ -4,6 +4,7 @@ namespace App\Licensing;
 
 use App\Models\License;
 use App\Models\LicenseActivation;
+use App\Models\LicenseAlert;
 use Illuminate\Support\Facades\DB;
 
 /**
@@ -97,13 +98,14 @@ class ActivationService
     /** POST /api/license/v1/activate */
     public function activateInstall(string $key, array $install, ?string $ip): array
     {
-        $license = $this->licenses->findByKey($key) ?? throw new LicenseException('invalid_key', 'License key not recognised.', 404);
-        $this->requireUsable($license);
-
         $domain = self::normalise((string) ($install['domain'] ?? ''));
         if (! self::validDomain($domain)) {
             throw new LicenseException('invalid_domain', 'That is not a valid domain.', 422, 'domain');
         }
+        $this->requireNotBlocked($domain);
+
+        $license = $this->licenses->findByKey($key) ?? throw new LicenseException('invalid_key', 'License key not recognised.', 404);
+        $this->requireUsable($license);
 
         $activation = DB::transaction(function () use ($license, $domain, $install, $ip) {
             $license = License::query()->whereKey($license->id)->lockForUpdate()->firstOrFail();
@@ -135,6 +137,7 @@ class ActivationService
     public function checkIn(string $token, array $install, ?string $ip): array
     {
         [$license, $activation] = $this->fromToken($token, allowExpired: true);
+        $this->requireNotBlocked($activation->domain);
         $this->requireUsable($license);
         $this->record($activation, $install, $ip);
         $activation->update(['check_in_requested' => false]);
@@ -157,6 +160,7 @@ class ActivationService
         if (! self::validDomain($domain)) {
             throw new LicenseException('invalid_domain', 'That is not a valid domain.', 422, 'domain');
         }
+        $this->requireNotBlocked($domain);
 
         $activation = DB::transaction(function () use ($license, $domain, $instanceId) {
             $existing = $license->activations()->where('domain', $domain)->where('status', '!=', LicenseActivation::DEACTIVATED)->first();
@@ -182,6 +186,7 @@ class ActivationService
         if (! self::validDomain($domain)) {
             throw new LicenseException('invalid_domain', 'Enter a domain like portal.yourlabel.com.', 422, 'domain');
         }
+        $this->requireNotBlocked($domain);
         $env = $environment === 'staging' || self::isStaging($domain) ? 'staging' : 'production';
 
         if ($license->activations()->where('domain', $domain)->where('status', '!=', LicenseActivation::DEACTIVATED)->exists()) {
@@ -197,6 +202,13 @@ class ActivationService
         }
 
         return [$domain, $env];
+    }
+
+    private function requireNotBlocked(string $domain): void
+    {
+        if (LicenseAlert::isBlocked($domain)) {
+            throw new LicenseException('domain_blocked', 'This domain is blocked from using '.setting('branding.product_name', 'LabelDesk').'. Contact support.', 403, 'domain');
+        }
     }
 
     private function requireUsable(License $license): void
@@ -242,6 +254,9 @@ class ActivationService
             'plan' => $license->plan?->code,
             'status' => $license->displayStatus(),
             'support_until' => $license->support_until?->timestamp,
+            // License expiry (annual; null = lifetime). LabelDesk is read-only for
+            // 10 days after this date and locked afterwards until renewed.
+            'expires' => $license->billing_type === 'lifetime' ? null : $license->expires_at?->timestamp,
             'max_version' => $license->maxVersion(),
         ], $ttlDays);
     }
@@ -250,7 +265,8 @@ class ActivationService
     {
         $messages = [];
         if ($license->displayStatus() === 'expired' && $license->billing_type === 'annual') {
-            $messages[] = 'Your annual license has expired. LabelDesk keeps working, but updates and support are paused until you renew.';
+            $lock = $license->expires_at?->copy()->addDays(10);
+            $messages[] = 'Your annual license has expired. LabelDesk is read-only'.($lock ? ' and will be locked after '.$lock->toFormattedDateString() : ' for 10 days and then locked').' unless you renew.';
         } elseif ($license->status === License::PENDING) {
             $messages[] = 'Awaiting payment. This license works until '.$license->pending_until?->toDateString().'.';
         }
@@ -259,6 +275,7 @@ class ActivationService
             'token' => $this->tokenFor($license, $activation),
             'status' => $license->displayStatus(),
             'support_until' => $license->support_until?->utc()->format('Y-m-d\TH:i:s\Z'),
+            'expires_at' => $license->billing_type === 'lifetime' ? null : $license->expires_at?->utc()->format('Y-m-d\TH:i:s\Z'),
             'max_version' => $license->maxVersion(),
             'check_in_requested' => (bool) $activation->check_in_requested,
             'messages' => $messages,

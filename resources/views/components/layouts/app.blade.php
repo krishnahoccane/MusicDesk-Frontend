@@ -4,6 +4,9 @@
     $user = auth()->user();
     $org = $user?->organisation;
     $isAdmin = $area === 'admin';
+    // Counts that need attention, shown as coral badges in the admin menu.
+    $openAlerts = $isAdmin ? \App\Models\LicenseAlert::where('status', 'open')->count() : 0;
+    $openTickets = $isAdmin ? \App\Models\SupportTicket::where('status', 'open')->count() : 0;
     $nav = $isAdmin
         ? [
             'Overview' => [
@@ -13,8 +16,12 @@
             ],
             'Licensing' => [
                 ['Licenses', 'admin.licenses', [], 'key', null],
+                ['Status', 'admin.license-status', [], 'shield', $openAlerts ?: null, 'alert'],
                 ['Customers', 'admin.customers', [], 'users', null],
                 ['Releases', 'admin.releases', [], 'download', null],
+            ],
+            'Support' => [
+                ['Tickets', 'admin.support', [], 'headphones', $openTickets ?: null, 'alert'],
             ],
             'Storefront' => [
                 ['Branding', 'admin.settings', ['branding'], 'sparkles', null],
@@ -42,7 +49,8 @@
                 ['Settings', 'dashboard.settings', [], 'settings', null],
             ],
         ];
-    $isActive = fn ($route, $params) => request()->routeIs($route) && (empty($params) || request()->route('group') === $params[0]);
+    $isActive = fn ($route, $params) => (request()->routeIs($route) || ($route !== 'dashboard' && request()->routeIs($route.'.*')))
+        && (empty($params) || request()->route('group') === $params[0]);
 @endphp
 <x-layouts.base :title="$title" x-data="{ side: false }">
     <div aria-hidden="true" class="pointer-events-none fixed inset-0 -z-10">
@@ -69,7 +77,7 @@
                 </span>
             </div>
         @elseif ($isAdmin)
-            <p class="mx-5 mb-2 text-[11px] leading-relaxed text-ink-500">Site admin for {{ parse_url(config('app.url'), PHP_URL_HOST) }}: licensing, payments and storefront.</p>
+            <p class="mx-5 mb-2 text-[11px] leading-relaxed text-ink-500">Site admin for {{ parse_url(config('app.url'), PHP_URL_HOST) }}: licensing, support, payments and storefront.</p>
         @endif
 
         <nav class="flex-1 space-y-6 overflow-y-auto px-3 py-3">
@@ -77,11 +85,12 @@
                 <div>
                     <div class="eyebrow mb-2 px-3 !text-[10px]">{{ $group }}</div>
                     <div class="space-y-0.5">
-                        @foreach ($items as [$label, $route, $params, $icon, $badge])
+                        @foreach ($items as $item)
+                            @php [$label, $route, $params, $icon, $badge] = $item; $tone = $item[5] ?? null; @endphp
                             <a href="{{ route($route, $params) }}" class="nav-link {{ $isActive($route, $params) ? 'active' : '' }}">
                                 <x-icon :name="$icon" class="size-[17px]"/>
                                 <span class="flex-1">{{ $label }}</span>
-                                @if ($badge)<span class="rounded-md bg-mint-500/15 px-1.5 py-px font-mono text-[10px] text-mint-400">{{ $badge }}</span>@endif
+                                @if ($badge)<span class="rounded-md px-1.5 py-px font-mono text-[10px] {{ $tone === 'alert' ? 'bg-coral-500/15 text-coral-400' : 'bg-mint-500/15 text-mint-400' }}">{{ $badge }}</span>@endif
                             </a>
                         @endforeach
                     </div>

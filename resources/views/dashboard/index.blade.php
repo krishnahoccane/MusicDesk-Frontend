@@ -154,11 +154,11 @@
                 <a href="{{ route('dashboard.support') }}" class="text-xs text-volt-300 hover:text-white">All tickets →</a>
             </div>
             <div class="mt-4 space-y-1">
-                @forelse (array_slice($tickets, 0, 3) as $t)
-                    <a href="{{ route('dashboard.support') }}" class="block rounded-xl p-3 transition hover:bg-white/[0.03]">
-                        <div class="flex items-center justify-between gap-3"><span class="font-mono text-[11px] text-ink-500">{{ $t['id'] }}</span><span class="badge {{ Demo::statusBadge($t['status']) }} !text-[10px]">{{ $t['status'] === 'awaiting' ? 'Awaiting you' : ucfirst($t['status']) }}</span></div>
-                        <div class="mt-1 truncate text-sm text-ink-100">{{ $t['subject'] }}</div>
-                        <div class="text-xs text-ink-500">Updated {{ $t['updated'] }}</div>
+                @forelse ($tickets as $t)
+                    <a href="{{ route('dashboard.support', ['t' => $t->number]) }}" class="block rounded-xl p-3 transition hover:bg-white/[0.03]">
+                        <div class="flex items-center justify-between gap-3"><span class="font-mono text-[11px] text-ink-500">{{ $t->number }}</span><span class="badge {{ $t->badge() }} !text-[10px]">{{ $t->statusLabel() }}</span></div>
+                        <div class="mt-1 truncate text-sm text-ink-100">{{ $t->subject }}</div>
+                        <div class="text-xs text-ink-500">Updated {{ $t->last_reply_at?->diffForHumans() }}</div>
                     </a>
                 @empty
                     <p class="p-3 text-sm text-ink-500">No open tickets. Need help? <a href="{{ route('dashboard.support') }}" class="text-volt-300">Contact support</a>.</p>

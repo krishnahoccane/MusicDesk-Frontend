@@ -6,9 +6,11 @@ use App\Http\Controllers\Controller;
 use App\Licensing\ActivationService;
 use App\Licensing\LicenseException;
 use App\Licensing\LicenseService;
+use App\Licensing\SecurityAlerts;
 use App\Models\Currency;
 use App\Models\License;
 use App\Models\LicenseActivation;
+use App\Models\LicenseAlert;
 use App\Models\Order;
 use App\Models\Organisation;
 use App\Models\Plan;
@@ -66,6 +68,8 @@ class LicenseAdminController extends Controller
             'plans' => Plan::orderBy('sort')->get(),
             'currencies' => Currency::enabled()->pluck('code'),
             'selected' => $request->query('organisation'),
+            'domain' => $request->query('domain'),
+            'alert' => $request->query('alert') ? LicenseAlert::find($request->query('alert')) : null,
         ]);
     }
 
@@ -88,6 +92,7 @@ class LicenseAdminController extends Controller
             'currency' => ['required_if:record_sale,1', 'nullable', 'string', 'size:3'],
             'payment' => ['nullable', Rule::in(['bank_transfer', 'manual'])],
             'paid' => ['nullable', 'boolean'],
+            'alert_id' => ['nullable', 'integer', 'exists:license_alerts,id'],
         ]);
 
         $actor = $this->actor($request);
@@ -122,6 +127,11 @@ class LicenseAdminController extends Controller
 
             return [$license, $key];
         });
+
+        // Issued from a security alert (Licenses > Status): the alert is settled and its domain unblocked.
+        if (! empty($data['alert_id'])) {
+            app(SecurityAlerts::class)->resolve(LicenseAlert::findOrFail($data['alert_id']), LicenseAlert::ISSUED, $actor, $license, "Issued {$license->number}");
+        }
 
         if (! empty($data['primary_domain'])) {
             try {

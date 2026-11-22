@@ -7,7 +7,7 @@ namespace App\Support;
  * MusicDesk is a white-label software provider. Customers buy LabelDesk
  * licenses and run the software on their own domains under their own brand.
  *
- * Demo-only content (tickets, team) until those modules are built.
+ * Demo-only content (team) until that module is built.
  */
 class Demo
 {
@@ -82,16 +82,6 @@ class Demo
                     ['improved', 'Updater now verifies package signatures'],
                 ],
             ],
-        ];
-    }
-
-    public static function tickets(): array
-    {
-        return [
-            ['id' => 'TCK-4821', 'subject' => 'Upgrade from 4.2.1 to 4.3.0 on sub-domain install', 'license' => 'LIC-24A7', 'status' => 'open', 'priority' => 'normal', 'updated' => '35 min ago', 'replies' => 3],
-            ['id' => 'TCK-4790', 'subject' => 'Custom SMTP sender shows “via” in Gmail', 'license' => 'LIC-24A7', 'status' => 'awaiting', 'priority' => 'low', 'updated' => 'Yesterday', 'replies' => 5],
-            ['id' => 'TCK-4655', 'subject' => 'Move license to a new server', 'license' => 'LIC-0B91', 'status' => 'resolved', 'priority' => 'normal', 'updated' => 'Nov 09', 'replies' => 4],
-            ['id' => 'TCK-4410', 'subject' => 'White-label favicon not updating', 'license' => 'LIC-19C2', 'status' => 'resolved', 'priority' => 'low', 'updated' => 'Oct 21', 'replies' => 2],
         ];
     }
 
