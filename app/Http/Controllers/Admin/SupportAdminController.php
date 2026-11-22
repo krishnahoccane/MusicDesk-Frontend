@@ -44,7 +44,7 @@ class SupportAdminController extends Controller
 
         return view('admin.support.show', [
             'ticket' => $ticket,
-            'staff' => User::query()->where('is_admin', true)->orderBy('name')->get(['id', 'name']),
+            'staff' => User::query()->with('adminRole')->where('is_admin', true)->whereNotNull('invite_accepted_at')->orderBy('name')->get()->filter->canAdmin('support')->values(),
             'history' => SupportTicket::query()->where('organisation_id', $ticket->organisation_id)->whereKeyNot($ticket->id)->latest('id')->limit(5)->get(),
         ]);
     }

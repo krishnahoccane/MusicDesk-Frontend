@@ -131,7 +131,7 @@ class SecurityAlerts
         if (! RateLimiter::attempt('security-alert-mail', self::MAX_EMAILS_PER_HOUR, fn () => true, 3600)) {
             return;
         }
-        $to = User::query()->where('is_admin', true)->pluck('email')->filter()->unique()->values()->all();
+        $to = User::staffEmails('security');
         if (! $to) {
             return;
         }

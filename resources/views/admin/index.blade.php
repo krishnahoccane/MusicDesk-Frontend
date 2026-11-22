@@ -1,18 +1,22 @@
-@php $statusBadge = ['paid' => 'badge-mint', 'awaiting_payment' => 'badge-amber', 'pending' => 'badge-ink', 'failed' => 'badge-coral', 'cancelled' => 'badge-ink', 'refunded' => 'badge-sky']; @endphp
+@php $can = fn ($p) => auth()->user()->canAdmin($p); $statusBadge = ['paid' => 'badge-mint', 'awaiting_payment' => 'badge-amber', 'pending' => 'badge-ink', 'failed' => 'badge-coral', 'cancelled' => 'badge-ink', 'refunded' => 'badge-sky']; @endphp
 <x-layouts.app area="admin" title="Site admin" subtitle="Storefront, payments and invoicing for {{ setting('branding.site_name') }}.">
     <x-slot:eyebrow>Admin · {{ local_time(now())->format('l, F j') }}</x-slot:eyebrow>
     <x-slot:heading>Overview</x-slot:heading>
     <x-slot:actions>
         <a href="{{ route('home') }}" target="_blank" class="btn btn-outline btn-sm"><x-icon name="globe" class="size-3.5"/> View site</a>
-        <a href="{{ route('admin.licenses.create') }}" class="btn btn-primary btn-sm"><x-icon name="key" class="size-3.5"/> Issue license</a>
+        @if (auth()->user()->canAdmin('licenses'))<a href="{{ route('admin.licenses.create') }}" class="btn btn-primary btn-sm"><x-icon name="key" class="size-3.5"/> Issue license</a>@endif
     </x-slot:actions>
 
+    @if ($can('sales') || $can('licenses'))
     <div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        @if ($can('sales'))
         <x-stat label="Revenue this month (≈ USD)" value="{{ '$'.number_format($revenueUsd, 0) }}" icon="wallet" color="#22d9a0"/>
         <x-stat label="Orders this month" value="{{ $ordersCount }}" icon="receipt" color="#7c5cff"/>
         <a href="{{ route('admin.orders', ['status' => 'awaiting_payment']) }}"><x-stat label="Awaiting bank transfer" value="{{ $awaiting }}" icon="alert" color="#ffb547"/></a>
-        <a href="{{ route('admin.licenses') }}"><x-stat label="Active licenses" value="{{ $licensesActive }}" icon="key" color="#ff3fd2"/></a>
+        @endif
+        @if ($can('licenses'))<a href="{{ route('admin.licenses') }}"><x-stat label="Active licenses" value="{{ $licensesActive }}" icon="key" color="#ff3fd2"/></a>@endif
     </div>
+    @endif
 
     <div class="mt-4 grid gap-4 lg:grid-cols-3">
         <div class="card card-pad">
@@ -21,32 +25,33 @@
                 <li class="flex items-start gap-3">
                     <span class="mt-1 size-2 rounded-full {{ $gatewaysOn->isNotEmpty() ? 'bg-mint-400' : 'bg-coral-400' }}"></span>
                     <span class="flex-1"><span class="block text-ink-100">Payment gateways</span><span class="text-xs text-ink-500">{{ $gatewaysOn->isNotEmpty() ? $gatewaysOn->implode(', ').' enabled' : 'None enabled. Customers can’t pay.' }}</span></span>
-                    <a href="{{ route('admin.gateways') }}" class="text-xs text-volt-300">Manage</a>
+                    @if ($can('payments'))<a href="{{ route('admin.gateways') }}" class="text-xs text-volt-300">Manage</a>@endif
                 </li>
                 <li class="flex items-start gap-3">
                     @php $stale = ! $ratesUpdated || \Illuminate\Support\Carbon::parse($ratesUpdated)->lt(now()->subHours(36)); @endphp
                     <span class="mt-1 size-2 rounded-full {{ $stale ? 'bg-amber-glow' : 'bg-mint-400' }}"></span>
                     <span class="flex-1"><span class="block text-ink-100">Exchange rates</span><span class="text-xs text-ink-500">{{ $ratesUpdated ? 'Updated '.\Illuminate\Support\Carbon::parse($ratesUpdated)->diffForHumans() : 'Never updated' }}{{ $stale ? '. Check the scheduler is running.' : '' }}</span></span>
-                    <a href="{{ route('admin.currencies') }}" class="text-xs text-volt-300">Rates</a>
+                    @if ($can('payments'))<a href="{{ route('admin.currencies') }}" class="text-xs text-volt-300">Rates</a>@endif
                 </li>
                 <li class="flex items-start gap-3">
                     <span class="mt-1 size-2 rounded-full {{ $expiring ? 'bg-amber-glow' : 'bg-mint-400' }}"></span>
                     <span class="flex-1"><span class="block text-ink-100">Renewals due (30 days)</span><span class="text-xs text-ink-500">{{ $expiring ? $expiring.' license(s). Customers get reminders at 30, 14 and 3 days.' : 'None due' }}</span></span>
-                    <a href="{{ route('admin.licenses', ['status' => 'expiring']) }}" class="text-xs text-volt-300">View</a>
+                    @if ($can('licenses'))<a href="{{ route('admin.licenses', ['status' => 'expiring']) }}" class="text-xs text-volt-300">View</a>@endif
                 </li>
                 <li class="flex items-start gap-3">
                     <span class="mt-1 size-2 rounded-full {{ $pendingLicenses ? 'bg-amber-glow' : 'bg-mint-400' }}"></span>
                     <span class="flex-1"><span class="block text-ink-100">Licenses awaiting payment</span><span class="text-xs text-ink-500">{{ $pendingLicenses ? $pendingLicenses.' on a 14-day grace period' : 'None' }}</span></span>
-                    <a href="{{ route('admin.licenses', ['status' => 'pending']) }}" class="text-xs text-volt-300">View</a>
+                    @if ($can('licenses'))<a href="{{ route('admin.licenses', ['status' => 'pending']) }}" class="text-xs text-volt-300">View</a>@endif
                 </li>
                 <li class="flex items-start gap-3">
                     <span class="mt-1 size-2 rounded-full {{ $latestRelease ? 'bg-mint-400' : 'bg-amber-glow' }}"></span>
                     <span class="flex-1"><span class="block text-ink-100">Latest release</span><span class="text-xs text-ink-500">{{ $latestRelease ? 'v'.$latestRelease->version.($latestRelease->hasFile() ? '' : ' · package not uploaded') : 'No release published' }} · {{ $onlineInstalls }} install(s) online</span></span>
-                    <a href="{{ route('admin.releases') }}" class="text-xs text-volt-300">Releases</a>
+                    @if ($can('releases'))<a href="{{ route('admin.releases') }}" class="text-xs text-volt-300">Releases</a>@endif
                 </li>
             </ul>
         </div>
 
+        @if ($can('sales'))
         <div class="card lg:col-span-2">
             <div class="flex items-center justify-between p-5 pb-2 sm:p-6 sm:pb-2">
                 <h2 class="font-semibold text-white">Recent orders</h2>
@@ -71,20 +76,25 @@
                 </table>
             </div>
         </div>
+        @endif
     </div>
 
+    @php
+        $tiles = array_filter([
+            ['Branding', 'Logo, colors, fonts', route('admin.settings', 'branding'), 'sparkles', 'storefront'],
+            ['Homepage text', 'Headlines and copy', route('admin.settings', 'home'), 'file', 'storefront'],
+            ['Pricing plans', 'Plans, add-ons, coupons', route('admin.plans'), 'tag', 'storefront'],
+            ['Legal pages', 'Terms, privacy, refunds', route('admin.pages'), 'shield', 'storefront'],
+            ['Contact & social', 'Emails, phone, links', route('admin.settings', 'contact'), 'mail', 'storefront'],
+            ['Payment gateways', 'Razorpay, Stripe, PayPal…', route('admin.gateways'), 'card', 'payments'],
+            ['Currencies', 'Rates & charm pricing', route('admin.currencies'), 'globe', 'payments'],
+            ['Invoicing', 'Company details, tax', route('admin.settings', 'invoice'), 'receipt', 'payments'],
+        ], fn ($t) => $can($t[4]));
+    @endphp
+    @if ($tiles)
     <h2 class="eyebrow mb-3 mt-10">Manage the storefront</h2>
     <div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        @foreach ([
-            ['Branding', 'Logo, colors, fonts', route('admin.settings', 'branding'), 'sparkles'],
-            ['Homepage text', 'Headlines and copy', route('admin.settings', 'home'), 'file'],
-            ['Pricing plans', 'Plans, add-ons, coupons', route('admin.plans'), 'tag'],
-            ['Legal pages', 'Terms, privacy, refunds', route('admin.pages'), 'shield'],
-            ['Contact & social', 'Emails, phone, links', route('admin.settings', 'contact'), 'mail'],
-            ['Payment gateways', 'Razorpay, Stripe, PayPal…', route('admin.gateways'), 'card'],
-            ['Currencies', 'Rates & charm pricing', route('admin.currencies'), 'globe'],
-            ['Invoicing', 'Company details, tax', route('admin.settings', 'invoice'), 'receipt'],
-        ] as [$t, $d, $href, $ic])
+        @foreach ($tiles as [$t, $d, $href, $ic])
             <a href="{{ $href }}" class="card card-pad group flex items-center gap-4 transition hover:border-white/10">
                 <span class="grid size-11 place-items-center rounded-xl bg-white/[0.04] text-volt-300 ring-1 ring-white/[0.06]"><x-icon :name="$ic" class="size-5"/></span>
                 <span class="flex-1"><span class="block font-medium text-white">{{ $t }}</span><span class="text-xs text-ink-500">{{ $d }}</span></span>
@@ -92,4 +102,5 @@
             </a>
         @endforeach
     </div>
+    @endif
 </x-layouts.app>

@@ -10,6 +10,7 @@ use App\Licensing\SecurityAlerts;
 use App\Models\Currency;
 use App\Models\License;
 use App\Models\LicenseActivation;
+use App\Models\LicenseAddon;
 use App\Models\LicenseAlert;
 use App\Models\Order;
 use App\Models\Organisation;
@@ -39,7 +40,7 @@ class LicenseAdminController extends Controller
         $status = $request->query('status');
         $now = now();
 
-        $query = License::query()->with(['organisation', 'plan'])->withCount(['activations as domains_live' => fn ($q) => $q->where('status', '!=', LicenseActivation::DEACTIVATED)])
+        $query = License::query()->with(['organisation', 'plan', 'addon', 'parent'])->withCount(['activations as domains_live' => fn ($q) => $q->where('status', '!=', LicenseActivation::DEACTIVATED)])
             ->search($request->query('q'))
             ->when($request->query('plan'), fn ($q, $p) => $q->whereHas('plan', fn ($w) => $w->where('code', $p)))
             ->when($status === 'expiring', fn ($q) => $q->where('status', License::ACTIVE)->whereBetween('expires_at', [$now, $now->copy()->addDays(License::EXPIRING_DAYS)]))
@@ -146,13 +147,30 @@ class LicenseAdminController extends Controller
 
     public function show(License $license): View
     {
-        $license->load(['organisation.users', 'plan', 'activations' => fn ($q) => $q->orderByRaw("case status when 'deactivated' then 1 else 0 end")->latest('id'), 'orders.invoice']);
+        $license->load(['organisation.users', 'plan', 'addon', 'parent', 'activations' => fn ($q) => $q->orderByRaw("case status when 'deactivated' then 1 else 0 end")->latest('id'), 'orders.invoice',
+            'addonLicenses' => fn ($q) => $q->with('addon')->withCount(['activations as domains_live' => fn ($a) => $a->where('status', '!=', LicenseActivation::DEACTIVATED)])]);
 
         return view('admin.licenses.show', [
             'license' => $license,
+            'availableAddons' => $license->isAddon() ? collect() : app(\App\Licensing\LicensePricer::class)->availableAddons($license),
             'events' => $license->events()->limit(100)->get(),
             'plans' => Plan::orderBy('sort')->get(),
         ]);
+    }
+
+    /** Give a main license an add-on by hand (comp, manual sale): its own key, shown once. */
+    public function issueAddon(Request $request, License $license): RedirectResponse
+    {
+        $data = $request->validate(['addon_id' => ['required', 'exists:license_addons,id'], 'billing_type' => ['required', Rule::in(['annual', 'lifetime'])], 'notes' => ['nullable', 'string', 'max:500']]);
+        try {
+            [$addonLicense, $key] = $this->licenses->createAddon($license, LicenseAddon::findOrFail($data['addon_id']), false, [
+                'billing_type' => $data['billing_type'], 'price_paid' => 0, 'currency' => $license->currency, 'notes' => $data['notes'] ?? null,
+            ], $this->actor($request));
+        } catch (LicenseException $e) {
+            return back()->with(['toast' => $e->getMessage(), 'toast_tone' => 'danger']);
+        }
+
+        return redirect()->route('admin.licenses.show', $addonLicense)->with(['new_key' => $key, 'toast' => "{$addonLicense->number} issued"]);
     }
 
     public function update(Request $request, License $license): RedirectResponse

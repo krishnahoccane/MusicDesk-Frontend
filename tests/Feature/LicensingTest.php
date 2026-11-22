@@ -35,7 +35,7 @@ class LicensingTest extends TestCase
 
     private function license(string $plan, string $type): License
     {
-        return License::whereHas('plan', fn ($q) => $q->where('code', $plan))->where('billing_type', $type)->firstOrFail();
+        return License::core()->whereHas('plan', fn ($q) => $q->where('code', $plan))->where('billing_type', $type)->firstOrFail();
     }
 
     public function test_seeded_demo_licenses_cover_the_main_states(): void

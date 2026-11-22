@@ -138,7 +138,7 @@ class SupportDesk
 
     private function mailStaff(SupportTicket $ticket, SupportMessage $message, bool $new): void
     {
-        $to = $ticket->assignee?->email ? [$ticket->assignee->email] : User::query()->where('is_admin', true)->pluck('email')->filter()->unique()->values()->all();
+        $to = $ticket->assignee?->email ? [$ticket->assignee->email] : User::staffEmails('support');
         $this->send($to, new SupportTicketMail($ticket, $message, toStaff: true, isNew: $new));
     }
 

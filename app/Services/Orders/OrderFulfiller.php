@@ -5,6 +5,7 @@ namespace App\Services\Orders;
 use App\Licensing\ActivationService;
 use App\Licensing\LicenseService;
 use App\Models\License;
+use App\Models\LicenseAddon;
 use App\Models\Order;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -14,7 +15,7 @@ use Illuminate\Support\Facades\Log;
  *   1. mark the order paid                     (idempotent: webhook + redirect can race)
  *   2. issue / settle the invoice
  *   3. apply the order to licensing: create the license (key generated here), or renew,
- *      add domains, upgrade, switch to lifetime.
+ *      add domains, upgrade, switch to lifetime, or issue a licensed add-on (its own key).
  */
 class OrderFulfiller
 {
@@ -103,6 +104,18 @@ class OrderFulfiller
             return;
         }
 
+        if ($order->kind === 'addon') {
+            $addon = LicenseAddon::find($order->meta['addon_id'] ?? null);
+            if ($addon) {
+                [$addonLicense] = $this->licenses->createAddon($license, $addon, false, [
+                    'billing_type' => $order->billing_type, 'price_paid' => $order->total, 'currency' => $order->currency,
+                ], $actor);
+                $order->update(['meta' => array_merge($order->meta ?? [], ['applied' => true, 'addon_license_id' => $addonLicense->id])]);
+            }
+
+            return;
+        }
+
         match ($order->kind) {
             'renewal' => $this->licenses->renew($license, $actor),
             'updates_renewal' => $this->licenses->renewUpdates($license, $actor),
@@ -126,8 +139,11 @@ class OrderFulfiller
 
         if ($license = $order->license) {
             $actor ??= 'system';
+            $addonLicense = $order->kind === 'addon' ? License::find($order->meta['addon_license_id'] ?? null) : null;
             if ($order->isNewLicense()) {
                 $this->licenses->revokeForRefund($license, $reason, $actor);
+            } elseif ($addonLicense) {
+                $this->licenses->revokeForRefund($addonLicense, $reason, $actor);
             } else {
                 // Renewals/upgrades: recorded; an admin decides what to undo on the license page.
                 $this->licenses->event($license, 'order_refunded', ['order' => $order->number, 'kind' => $order->kind, 'reason' => $reason], $actor);

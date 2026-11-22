@@ -25,6 +25,7 @@ class AuthController extends Controller
         }
 
         $request->session()->regenerate();
+        Auth::user()->forceFill(['last_login_at' => now()])->saveQuietly();
 
         return redirect()->intended(Auth::user()->is_admin && ! Auth::user()->organisation_id ? route('admin.dashboard') : route('dashboard'));
     }

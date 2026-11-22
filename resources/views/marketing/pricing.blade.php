@@ -8,10 +8,32 @@
         <div class="mt-12">@include('marketing.partials.license-tiers', ['plans' => $plans])</div>
     </section>
 
-    {{-- Add-ons --}}
+    {{-- Licensed add-ons --}}
+    @if ($licenseAddons->isNotEmpty())
+    <section class="mx-auto mt-24 max-w-7xl px-4 sm:px-6">
+        <h2 class="reveal display text-center text-3xl">Add-on modules</h2>
+        <p class="reveal mt-2 text-center text-sm text-ink-400">Each add-on comes with its own license key for the domains on your main license. Buy it from your customer portal.</p>
+        <div class="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            @foreach ($licenseAddons as $a)
+                <div class="reveal card card-pad">
+                    <span class="grid size-10 place-items-center rounded-xl bg-white/[0.04] text-volt-300 ring-1 ring-white/[0.06]"><x-icon :name="$a->icon" class="size-5"/></span>
+                    <h3 class="mt-5 font-semibold text-white">{{ $a->name }}</h3>
+                    <div class="mt-1">
+                        <span class="text-xl font-semibold text-white">{{ money($a->price_annual)['display'] }}</span><span class="text-xs text-ink-400"> / year</span>
+                        @if ($a->price_lifetime)<span class="ml-2 text-xs text-ink-400">or {{ money($a->price_lifetime)['display'] }} lifetime</span>@endif
+                    </div>
+                    @if ($a->description)<p class="mt-2 text-sm leading-relaxed text-ink-400">{{ $a->description }}</p>@endif
+                    @if ($a->plans->isNotEmpty())<p class="mt-3 text-xs text-mint-400">Included with {{ $a->plans->pluck('name')->join(', ', ' and ') }}</p>@endif
+                </div>
+            @endforeach
+        </div>
+    </section>
+    @endif
+
+    {{-- Services --}}
     @if ($addons->isNotEmpty())
     <section class="mx-auto mt-24 max-w-7xl px-4 sm:px-6">
-        <h2 class="reveal display text-center text-3xl">Add-ons & services</h2>
+        <h2 class="reveal display text-center text-3xl">Services</h2>
         <p class="reveal mt-2 text-center text-sm text-ink-400">Add these at checkout or later from your customer portal.</p>
         <div class="mt-10 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             @foreach ($addons as $a)

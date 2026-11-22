@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Middleware\EnsureAdmin;
+use App\Http\Middleware\EnsureAdminPermission;
 use App\Http\Middleware\Localize;
 use App\Http\Middleware\RequireInstallation;
 use Illuminate\Foundation\Application;
@@ -18,7 +19,7 @@ return Application::configure(basePath: dirname(__DIR__))
     ->withMiddleware(function (Middleware $middleware): void {
         // Web installer gate first: before installation everything leads to /install.
         $middleware->web(prepend: [RequireInstallation::class], append: [Localize::class]);
-        $middleware->alias(['admin' => EnsureAdmin::class]);
+        $middleware->alias(['admin' => EnsureAdmin::class, 'admin.can' => EnsureAdminPermission::class]);
         // Browser time zone cookie is set by JS and read as a plain value.
         $middleware->encryptCookies(except: ['tz']);
         // Gateways and billing.twsd.me post webhooks without a CSRF token (they are signature-verified).

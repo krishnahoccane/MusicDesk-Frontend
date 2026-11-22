@@ -115,6 +115,7 @@
                                 @endif
                                 <a href="{{ route('licenses.buy', [$l['uid'], 'change_plan']) }}" class="nav-link w-full"><x-icon name="layers"/> Upgrade tier</a>
                                 <a href="{{ route('licenses.buy', [$l['uid'], 'extra_domains']) }}" class="nav-link w-full"><x-icon name="plus"/> Buy extra domains</a>
+                                @if (! empty($l['available_addons']))<a href="{{ route('licenses.buy', [$l['uid'], 'addon']) }}" class="nav-link w-full"><x-icon name="layers"/> Buy an add-on</a>@endif
                                 <a href="{{ route('dashboard.licenses.certificate', $l['uid']) }}" class="nav-link w-full"><x-icon name="file"/> License certificate (PDF)</a>
                                 <button class="nav-link w-full" @click="m = false; $dispatch('open-offline', { uid: @js($l['uid']), id: @js($l['id']) })"><x-icon name="upload"/> Offline activation</button>
                                 @if ($l['renews'] && ! $l['auto_renew'])
@@ -156,7 +157,7 @@
                 <div x-show="open" x-collapse x-cloak>
                     <div class="border-t hairline bg-ink-950/40">
                         <div class="flex gap-1 overflow-x-auto overflow-y-hidden border-b hairline px-5 sm:px-6">
-                            @foreach (['domains' => 'Domains & installations', 'details' => 'Details & history'] as $k => $lab)
+                            @foreach (['domains' => 'Domains & installations', 'addons' => 'Add-ons'.(count($l['addons'] ?? []) ? ' ('.count($l['addons']).')' : ''), 'details' => 'Details & history'] as $k => $lab)
                                 <button @click="tab = '{{ $k }}'" class="relative whitespace-nowrap px-3 py-3.5 text-[13px] font-medium transition" :class="tab === '{{ $k }}' ? 'text-white' : 'text-ink-400 hover:text-white'">
                                     {{ $lab }}
                                     <span x-show="tab === '{{ $k }}'" class="absolute inset-x-2 -bottom-px h-0.5 rounded-full bg-gradient-to-r from-volt-400 to-flare-400"></span>
@@ -202,6 +203,73 @@
                                     </tbody>
                                 </table>
                             </div>
+                        </div>
+
+                        {{-- Add-ons: each has its own key --}}
+                        <div x-show="tab === 'addons'" x-cloak class="space-y-4 p-5 sm:p-6">
+                            <p class="text-sm text-ink-400">Each add-on has its own key. Enter it in {{ setting('branding.product_name', 'LabelDesk') }} under Settings › Add-ons on any domain of {{ $l['id'] }}; it activates on that domain automatically.</p>
+                            @foreach ($l['addons'] ?? [] as $a)
+                                <div class="rounded-2xl border hairline bg-white/[0.02] p-4"
+                                     x-data="{ reveal: false, key: null,
+                                        async fetchKey() { if (!this.key) { this.key = (await portalApi(@js(url('/dashboard/licenses/'.$a['uid'].'/reveal')))).key } return this.key },
+                                        async toggleReveal() { if (!this.reveal) { await this.fetchKey() } this.reveal = !this.reveal },
+                                        async copyKey() { this.$copy(await this.fetchKey()) } }">
+                                    <div class="flex flex-col gap-3 lg:flex-row lg:items-center">
+                                        <div class="min-w-0 flex-1">
+                                            <div class="flex flex-wrap items-center gap-2">
+                                                <span class="font-medium text-white">{{ $a['name'] }}</span>
+                                                <span class="badge {{ $a['included'] ? 'badge-mint' : 'badge-ink' }}">{{ $a['included'] ? 'Included with '.$l['tier'] : $a['type'] }}</span>
+                                                <span class="badge badge-dot {{ Demo::statusBadge($a['status']) }}">{{ ucfirst($a['status']) }}</span>
+                                            </div>
+                                            <div class="mt-1.5 flex items-center gap-2">
+                                                <code class="font-mono text-[13px] tracking-wider text-ink-300" x-text="reveal && key ? key : @js($a['key'])">{{ $a['key'] }}</code>
+                                                <button @click="toggleReveal()" class="text-ink-500 hover:text-white" :aria-label="reveal ? 'Hide key' : 'Reveal key'" title="Reveal key (recorded in the license history)"><x-icon name="eye" class="size-3.5"/></button>
+                                                <button @click="copyKey()" class="text-ink-500 hover:text-white" aria-label="Copy {{ $a['name'] }} key"><x-icon name="copy" class="size-3.5"/></button>
+                                            </div>
+                                            @if ($a['status_reason'])<div class="mt-1 text-xs text-coral-400">{{ $a['status_reason'] }}</div>@endif
+                                        </div>
+                                        <div class="text-xs text-ink-400 lg:w-48">
+                                            @if ($a['included'])Renews with {{ $l['id'] }}@elseif ($a['renews'])Renews {{ $a['renews'] }}@else Updates until {{ $a['support_until'] }}@endif
+                                        </div>
+                                        <div class="flex gap-2">
+                                            @if (! $a['included'] && $a['type'] === 'Annual' && ! in_array($a['status'], ['suspended', 'revoked'], true))
+                                                <a href="{{ route('licenses.buy', [$a['uid'], 'renewal']) }}" class="btn btn-outline btn-sm">Renew</a>
+                                            @elseif (! $a['included'] && $a['support_expired'])
+                                                <a href="{{ route('licenses.buy', [$a['uid'], 'updates_renewal']) }}" class="btn btn-outline btn-sm">Renew updates</a>
+                                            @endif
+                                        </div>
+                                    </div>
+                                    <div class="mt-3 flex flex-wrap gap-1.5 border-t hairline pt-3">
+                                        <span class="mr-1 text-[11px] text-ink-500">Active on</span>
+                                        @forelse ($a['domains'] as $d)
+                                            <span class="inline-flex items-center gap-1.5 rounded-lg bg-white/[0.04] px-2 py-0.5 font-mono text-[11px] text-ink-200"><span class="size-1.5 rounded-full {{ $d['online'] ? 'bg-mint-400' : 'bg-ink-500' }}"></span>{{ $d['domain'] }}</span>
+                                        @empty
+                                            <span class="text-[11px] text-ink-500">No domains yet. It activates when {{ setting('branding.product_name', 'LabelDesk') }} first checks in with this key.</span>
+                                        @endforelse
+                                    </div>
+                                </div>
+                            @endforeach
+
+                            @if (! empty($l['available_addons']))
+                                <div>
+                                    <div class="eyebrow mb-2 mt-2">Available add-ons</div>
+                                    <div class="grid gap-3 md:grid-cols-2">
+                                        @foreach ($l['available_addons'] as $x)
+                                            <div class="flex items-start gap-3 rounded-2xl border border-dashed border-white/10 p-4">
+                                                <x-icon name="layers" class="mt-0.5 size-4 shrink-0 text-volt-300"/>
+                                                <div class="min-w-0 flex-1">
+                                                    <div class="font-medium text-white">{{ $x['name'] }}</div>
+                                                    @if ($x['description'])<p class="mt-0.5 text-xs text-ink-400">{{ $x['description'] }}</p>@endif
+                                                    <div class="mt-1.5 text-xs text-ink-300">{{ $x['annual'] }} / year{{ $x['lifetime'] ? ' · '.$x['lifetime'].' lifetime' : '' }}</div>
+                                                </div>
+                                                <a href="{{ route('licenses.buy', [$l['uid'], 'addon', 'addon' => $x['code']]) }}" class="btn btn-primary btn-sm shrink-0">Add</a>
+                                            </div>
+                                        @endforeach
+                                    </div>
+                                </div>
+                            @elseif (empty($l['addons']))
+                                <p class="py-6 text-center text-sm text-ink-500">No add-ons available for this license.</p>
+                            @endif
                         </div>
 
                         {{-- Details --}}

@@ -23,6 +23,7 @@ class Order extends Model
         'extra_domains' => 'Extra domains',
         'change_plan' => 'Upgrade',
         'convert_lifetime' => 'Switch to lifetime',
+        'addon' => 'Add-on',
     ];
 
     protected function casts(): array

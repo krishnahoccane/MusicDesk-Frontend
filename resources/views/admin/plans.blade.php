@@ -1,6 +1,7 @@
-<x-layouts.app area="admin" title="Pricing plans" subtitle="License plans, add-ons and coupons. Prices are set in USD and converted for each visitor.">
+<x-layouts.app area="admin" title="Pricing plans" subtitle="License plans, licensed add-ons, services and coupons. Prices are set in USD and converted for each visitor.">
     <x-slot:eyebrow>Admin · Storefront</x-slot:eyebrow>
     <x-slot:actions>
+        <button class="btn btn-outline btn-sm" @click="$dispatch('open-new-addon')"><x-icon name="layers" class="size-3.5"/> New add-on</button>
         <button class="btn btn-primary btn-sm" @click="$dispatch('open-new-plan')"><x-icon name="plus" class="size-3.5"/> New plan</button>
     </x-slot:actions>
 
@@ -35,11 +36,52 @@
         @endforeach
     </div>
 
+    {{-- Licensed add-ons --}}
+    <div class="mt-10 mb-3 flex items-end justify-between gap-4" id="license-addons">
+        <div>
+            <h2 class="font-semibold text-white">Licensed add-ons</h2>
+            <p class="mt-0.5 text-sm text-ink-400">Optional modules with their own license key. Sold annual or lifetime for a main license, or included free with a plan.</p>
+        </div>
+        <button class="btn btn-outline btn-sm shrink-0" @click="$dispatch('open-new-addon')"><x-icon name="plus" class="size-3.5"/> New add-on</button>
+    </div>
+    <div class="space-y-3">
+        @forelse ($licenseAddons as $la)
+            <form method="POST" action="{{ route('admin.plans.license-addons.update', $la) }}" class="card" x-data="{ open: false }">
+                @csrf @method('PUT')
+                <div class="flex flex-wrap items-center gap-4 p-5">
+                    <span class="grid size-11 place-items-center rounded-xl bg-white/[0.04] text-volt-300 ring-1 ring-white/[0.06]"><x-icon :name="$la->icon" class="size-5"/></span>
+                    <div class="min-w-0 flex-1">
+                        <div class="flex flex-wrap items-center gap-2"><span class="font-semibold text-white">{{ $la->name }}</span>
+                            <span class="badge {{ $la->active ? 'badge-mint' : 'badge-ink' }}">{{ $la->active ? 'On sale' : 'Hidden' }}</span>
+                            @foreach ($la->plans as $p)<span class="badge badge-volt">Free with {{ $p->name }}</span>@endforeach</div>
+                        <div class="text-xs text-ink-500"><span class="font-mono">{{ $la->code }}</span> · ${{ number_format($la->price_annual) }}/yr{{ $la->price_lifetime ? ' · $'.number_format($la->price_lifetime).' lifetime' : '' }} · {{ $la->keys_count }} {{ Str::plural('key', $la->keys_count) }} issued</div>
+                    </div>
+                    <button type="button" class="btn btn-outline btn-sm" @click="open = !open"><span x-text="open ? 'Close' : 'Edit'"></span></button>
+                </div>
+                <div x-show="open" x-collapse x-cloak class="border-t hairline">
+                    @include('admin.partials.license-addon-fields', ['addon' => $la])
+                    <div class="flex items-center justify-between border-t hairline px-5 py-4 sm:px-6">
+                        <button type="submit" form="del-addon-{{ $la->id }}" class="btn btn-danger btn-sm"><x-icon name="trash" class="size-3.5"/> Remove</button>
+                        <button class="btn btn-primary btn-sm">Save {{ $la->name }}</button>
+                    </div>
+                </div>
+            </form>
+            <form id="del-addon-{{ $la->id }}" method="POST" action="{{ route('admin.plans.license-addons.destroy', $la) }}" onsubmit="return confirm(@js('Remove '.$la->name.'? Add-ons with keys or releases are hidden instead of deleted.'))">@csrf @method('DELETE')</form>
+        @empty
+            <div class="card flex flex-col items-center px-6 py-10 text-center">
+                <span class="grid size-11 place-items-center rounded-xl bg-white/[0.04] text-ink-400"><x-icon name="layers" class="size-5"/></span>
+                <div class="mt-3 text-sm font-medium text-white">No licensed add-ons yet</div>
+                <p class="mt-1 max-w-md text-xs text-ink-500">Create one to sell a LabelDesk module separately, or to include it with higher plans.</p>
+                <button class="btn btn-primary btn-sm mt-4" @click="$dispatch('open-new-addon')"><x-icon name="plus" class="size-3.5"/> New add-on</button>
+            </div>
+        @endforelse
+    </div>
+
     <div class="mt-10 grid gap-4 xl:grid-cols-[1fr_380px]">
-        {{-- Add-ons --}}
+        {{-- Services --}}
         <form method="POST" action="{{ route('admin.plans.addons') }}" class="card">
             @csrf
-            <div class="p-5 sm:p-6"><h2 class="font-semibold text-white">Add-ons & services</h2><p class="text-sm text-ink-400">Shown on the pricing page. Tick “Checkout” to offer them in checkout.</p></div>
+            <div class="p-5 sm:p-6"><h2 class="font-semibold text-white">Services</h2><p class="text-sm text-ink-400">One-off and recurring services (no license key). Shown on the pricing page; tick “Checkout” to offer them in checkout.</p></div>
             <div class="overflow-x-auto">
                 <table class="table">
                     <thead><tr><th>Name & description</th><th>Price (USD)</th><th>Billing</th><th>From</th><th>Checkout</th><th>Active</th></tr></thead>
@@ -60,7 +102,7 @@
                     </tbody>
                 </table>
             </div>
-            <div class="flex justify-end border-t hairline px-5 py-4 sm:px-6"><button class="btn btn-primary btn-sm">Save add-ons</button></div>
+            <div class="flex justify-end border-t hairline px-5 py-4 sm:px-6"><button class="btn btn-primary btn-sm">Save services</button></div>
         </form>
 
         {{-- Coupons & notes --}}
@@ -75,6 +117,15 @@
             <button class="btn btn-primary btn-sm w-full">Save</button>
         </form>
     </div>
+
+    <x-modal event="open-new-addon" title="New licensed add-on" subtitle="Each purchase gets its own license key." width="max-w-2xl">
+        <form method="POST" action="{{ route('admin.plans.license-addons.store') }}" class="-mx-6 mt-2">
+            @csrf
+            @include('admin.partials.license-addon-fields', ['addon' => null])
+            <div class="flex justify-end gap-2 border-t hairline px-6 pt-4"><button type="button" class="btn btn-ghost" @click="open = false">Cancel</button><button class="btn btn-primary">Create add-on</button></div>
+        </form>
+    </x-modal>
+    @if ($errors->hasAny(['code', 'price_annual', 'price_lifetime', 'plans']) && ! old('domains'))<div x-data x-init="$nextTick(() => $dispatch('open-new-addon'))"></div>@endif
 
     <x-modal event="open-new-plan" title="New plan" width="max-w-2xl">
         <form method="POST" action="{{ route('admin.plans.store') }}" class="-mx-6 mt-4">

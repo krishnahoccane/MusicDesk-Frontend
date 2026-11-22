@@ -52,7 +52,18 @@ class PortalController extends Controller
 
     public function downloads(Request $request): View
     {
-        $releases = Release::published()->get();
+        $releases = Release::published()->core()->get();
+
+        // Add-on packages, for each add-on key the organisation holds.
+        $addonDownloads = License::query()->where('organisation_id', $request->user()->organisation_id)->whereNotNull('addon_id')
+            ->where('status', '!=', License::REVOKED)->with(['addon', 'parent'])->get()
+            ->map(fn (License $l) => [
+                'name' => $l->addon->name, 'number' => $l->number, 'uid' => $l->uuid, 'parent' => $l->parent?->number,
+                'releases' => Release::published()->where('addon_id', $l->addon_id)->get()->map(fn (Release $r) => [
+                    'id' => $r->id, 'version' => $r->version, 'date' => local_time($r->released_at)->format('M d, Y'),
+                    'has_file' => $r->hasFile(), 'allowed' => $l->mayDownload($r),
+                ])->all(),
+            ])->filter(fn ($a) => $a['releases'])->values()->all();
 
         return view('dashboard.downloads', [
             'releases' => $releases->map(fn (Release $r, $i) => [
@@ -68,6 +79,7 @@ class PortalController extends Controller
                 'released_at' => $r->released_at,
             ])->all(),
             'licenses' => $this->licenses($request),
+            'addonDownloads' => $addonDownloads,
         ]);
     }
 

@@ -5,7 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Model;
 
-/** A LabelDesk version customers can download (file kept privately, served through signed links). */
+/** A LabelDesk (or add-on, when addon_id is set) version customers can download (file kept privately). */
 class Release extends Model
 {
     protected $guarded = ['id'];
@@ -15,6 +15,22 @@ class Release extends Model
         return ['released_at' => 'datetime', 'notes' => 'array', 'requirements' => 'array', 'published' => 'boolean', 'size_bytes' => 'integer'];
     }
 
+    public function addon(): \Illuminate\Database\Eloquent\Relations\BelongsTo
+    {
+        return $this->belongsTo(LicenseAddon::class, 'addon_id');
+    }
+
+    /** LabelDesk itself (not an add-on). */
+    public function scopeCore(Builder $q): Builder
+    {
+        return $q->whereNull('addon_id');
+    }
+
+    public function scopeForProduct(Builder $q, ?int $addonId): Builder
+    {
+        return $addonId ? $q->where('addon_id', $addonId) : $q->whereNull('addon_id');
+    }
+
     public function scopePublished(Builder $q): Builder
     {
         return $q->where('published', true)->orderByDesc('released_at');
@@ -22,7 +38,7 @@ class Release extends Model
 
     public static function latest(): ?self
     {
-        return static::published()->where('channel', 'stable')->first();
+        return static::published()->core()->where('channel', 'stable')->first();
     }
 
     public static function latestVersion(): string
@@ -43,6 +59,6 @@ class Release extends Model
 
     public function fileName(): string
     {
-        return 'labeldesk-'.$this->version.'.zip';
+        return ($this->addon ? 'labeldesk-'.$this->addon->code : 'labeldesk').'-'.$this->version.'.zip';
     }
 }

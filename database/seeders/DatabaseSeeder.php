@@ -2,21 +2,23 @@
 
 namespace Database\Seeders;
 
+use App\Licensing\LicenseService;
+use App\Models\AdminRole;
 use App\Models\Invoice;
+use App\Models\License;
+use App\Models\LicenseAddon;
+use App\Models\LicenseAlert;
 use App\Models\Organisation;
 use App\Models\PaymentGateway;
-use App\Models\User;
-use App\Licensing\LicenseService;
-use App\Models\License;
-use App\Models\LicenseAlert;
-use App\Models\SupportTicket;
 use App\Models\Plan;
 use App\Models\Release;
-use App\Support\Demo;
-use Illuminate\Support\Str;
+use App\Models\SupportTicket;
+use App\Models\User;
 use App\Services\Orders\InvoiceService;
+use App\Support\Demo;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Str;
 
 /**
  * DEVELOPMENT seed: reference data + demo accounts. Real installations use the web installer
@@ -33,6 +35,7 @@ class DatabaseSeeder extends Seeder
         $this->call(ReferenceDataSeeder::class);
         $this->demoBankTransfer();
         $this->users();
+        $this->licenseAddons();
         $this->releases();
         $this->licenses();
         $this->support();
@@ -56,7 +59,7 @@ class DatabaseSeeder extends Seeder
     {
         User::updateOrCreate(['email' => 'admin@musicdesk.test'], [
             'name' => 'Site Admin', 'password' => 'musicdesk-admin-2026', 'role' => 'owner',
-        ])->forceFill(['is_admin' => true])->save();
+        ])->forceFill(['is_admin' => true, 'admin_role_id' => AdminRole::owner()->id, 'invite_accepted_at' => now()])->save();
 
         $org = Organisation::updateOrCreate(['email' => Demo::DEMO_ORG_EMAIL], [
             'name' => 'Lowtide Distribution Ltd.', 'country' => 'GB',
@@ -99,7 +102,7 @@ class DatabaseSeeder extends Seeder
     private function releases(): void
     {
         foreach (Demo::releases() as $r) {
-            Release::updateOrCreate(['version' => $r['version']], [
+            Release::updateOrCreate(['version' => $r['version'], 'addon_id' => null], [
                 'channel' => 'stable',
                 'released_at' => Carbon::parse($r['date'], 'UTC'),
                 'notes' => array_map(fn ($n) => ['kind' => $n[0], 'text' => $n[1]], $r['notes']),
@@ -107,6 +110,34 @@ class DatabaseSeeder extends Seeder
                 'published' => true,
             ]);
         }
+    }
+
+    /** Licensed add-ons: demo services (DDEX, Content ID) and the LabelDesk plugins (bulk_upload, rest_api, incoming_webhooks, sso). */
+    private function licenseAddons(): void
+    {
+        $plans = Plan::pluck('id', 'code');
+        $rows = [
+            ['ddex', 'DDEX delivery', 'Deliver releases to DSPs as DDEX ERN 4.3, with acknowledgement tracking.', 'layers', 590, 1490, ['business', 'enterprise']],
+            ['sso', 'SSO / SAML', 'Single sign-on for staff and label users with Okta, Azure AD or Google Workspace.', 'shield', 390, null, ['enterprise']],
+            ['content_id', 'YouTube Content ID', 'Claim and monetise user uploads, with matches in royalty statements.', 'play', 290, 790, []],
+            // LabelDesk plugins (codes match "addon" in each plugin.json).
+            ['bulk_upload', 'Bulk upload', 'Import artists and releases with tracks from Excel or CSV templates.', 'upload', 190, 490, ['business', 'enterprise']],
+            ['rest_api', 'REST API', 'Read and write the catalogue from your own systems with API tokens.', 'link', 290, 790, ['enterprise']],
+            ['incoming_webhooks', 'Incoming webhooks', 'Let other systems push releases, sales and events into LabelDesk.', 'zap', 190, 490, []],
+        ];
+        foreach ($rows as $i => [$code, $name, $description, $icon, $annual, $lifetime, $included]) {
+            $addon = LicenseAddon::updateOrCreate(['code' => $code], [
+                'name' => $name, 'description' => $description, 'icon' => $icon, 'price_annual' => $annual, 'price_lifetime' => $lifetime, 'active' => true, 'sort' => $i,
+            ]);
+            $addon->plans()->sync(collect($included)->map(fn ($c) => $plans[$c] ?? null)->filter()->all());
+        }
+
+        $ddex = LicenseAddon::where('code', 'ddex')->first();
+        Release::updateOrCreate(['version' => '1.2.0', 'addon_id' => $ddex->id], [
+            'channel' => 'stable', 'released_at' => Carbon::parse('2026-10-28', 'UTC'), 'published' => true,
+            'notes' => [['kind' => 'new', 'text' => 'ERN 4.3 takedown messages'], ['kind' => 'fixed', 'text' => 'Retry failed SFTP uploads']],
+            'requirements' => ['php' => 'LabelDesk 4.2+'],
+        ]);
     }
 
     /** Three demo licenses covering the common states: busy annual, lifetime with lapsed updates, annual about to expire. */
@@ -136,6 +167,9 @@ class DatabaseSeeder extends Seeder
             'purchased_at' => Carbon::parse('2024-08-02 10:00:00', 'UTC'),
         ], 'seed');
         $this->activate($legacy, [['labels.sunsetwax.co', 'production', '4.1.0', 7]]);
+        // A bought add-on with its own key, active on the main license's domain.
+        [$contentId] = $service->createAddon($legacy, LicenseAddon::where('code', 'content_id')->firstOrFail(), false, ['billing_type' => 'lifetime', 'price_paid' => 790, 'currency' => 'USD'], 'seed');
+        $this->activate($contentId, [['labels.sunsetwax.co', 'production', '1.0.3', 7]]);
 
         // Bought a year ago (minus 11 days), so it renews in 11 days.
         [$expiring] = $service->create($org, $starter, [

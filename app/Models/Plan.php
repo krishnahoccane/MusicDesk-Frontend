@@ -21,6 +21,12 @@ class Plan extends Model
         ];
     }
 
+    /** Licensed add-ons included free with this plan. */
+    public function includedAddons(): \Illuminate\Database\Eloquent\Relations\BelongsToMany
+    {
+        return $this->belongsToMany(LicenseAddon::class, 'license_addon_plan');
+    }
+
     public function orders(): \Illuminate\Database\Eloquent\Relations\HasMany
     {
         return $this->hasMany(Order::class);

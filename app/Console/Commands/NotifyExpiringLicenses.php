@@ -28,6 +28,7 @@ class NotifyExpiringLicenses extends Command
         License::query()
             ->with(['organisation.users', 'plan', 'events' => fn ($q) => $q->where('event', 'expiry_notice')])
             ->where('billing_type', 'annual')
+            ->where('included', false)   // included add-ons renew with their main license
             ->where('status', License::ACTIVE)
             ->where('auto_renew', true)
             ->whereBetween('expires_at', [now(), now()->addDays(max(self::THRESHOLDS))])

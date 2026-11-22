@@ -1,13 +1,20 @@
 @php use App\Http\Controllers\Admin\ReleaseAdminController as R; @endphp
-<x-layouts.app area="admin" title="Releases" subtitle="LabelDesk versions customers can download. Packages are stored privately and only served to licenses whose updates period covers the release.">
+<x-layouts.app area="admin" title="Releases" subtitle="LabelDesk and add-on versions customers can download. Packages are stored privately and only served to licenses whose updates period covers the release.">
     <x-slot:eyebrow>Admin · Licensing</x-slot:eyebrow>
     <x-slot:actions><button class="btn btn-primary btn-sm" @click="$dispatch('open-release', {})"><x-icon name="upload" class="size-3.5"/> New release</button></x-slot:actions>
+
+    <div class="mb-4 flex flex-wrap gap-1 rounded-xl border hairline bg-white/[0.02] p-1 text-[13px] w-fit">
+        @foreach (['' => 'All products', 'core' => setting('branding.product_name', 'LabelDesk')] + $addons->mapWithKeys(fn ($a) => [(string) $a->id => $a->name])->all() as $k => $l)
+            <a href="{{ route('admin.releases', array_filter(['product' => $k])) }}" class="rounded-lg px-3 py-1.5 font-medium transition {{ (string) $product === (string) $k ? 'bg-white/10 text-white' : 'text-ink-400 hover:text-white' }}">{{ $l }}</a>
+        @endforeach
+    </div>
 
     <div class="space-y-3">
         @forelse ($releases as $r)
             <form method="POST" action="{{ route('admin.releases.update', $r) }}" enctype="multipart/form-data" class="card" x-data="{ open: false }">
                 @csrf @method('PUT')
                 <div class="flex flex-wrap items-center gap-4 p-5">
+                    <span class="badge {{ $r->addon ? 'badge-flare' : 'badge-volt' }}">{{ $r->addon ? $r->addon->name.' add-on' : setting('branding.product_name', 'LabelDesk') }}</span>
                     <span class="font-mono text-lg font-semibold text-white">v{{ $r->version }}</span>
                     <span class="badge {{ $r->channel === 'beta' ? 'badge-amber' : 'badge-ink' }}">{{ $r->channel }}</span>
                     <span class="badge {{ $r->published ? 'badge-mint' : 'badge-ink' }}">{{ $r->published ? 'Published' : 'Hidden' }}</span>

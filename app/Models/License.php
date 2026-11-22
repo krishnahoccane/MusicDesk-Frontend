@@ -46,6 +46,7 @@ class License extends Model
             'support_until' => 'datetime',
             'pending_until' => 'datetime',
             'auto_renew' => 'boolean',
+            'included' => 'boolean',
             'domains_included' => 'integer',
             'domains_extra' => 'integer',
             'price_paid' => 'float',
@@ -65,6 +66,41 @@ class License extends Model
     public function plan(): BelongsTo
     {
         return $this->belongsTo(Plan::class);
+    }
+
+    /** Set on add-on licenses: which add-on this key unlocks. */
+    public function addon(): BelongsTo
+    {
+        return $this->belongsTo(LicenseAddon::class, 'addon_id');
+    }
+
+    /** Set on add-on licenses: the main license it belongs to. */
+    public function parent(): BelongsTo
+    {
+        return $this->belongsTo(License::class, 'parent_id');
+    }
+
+    /** Add-on licenses attached to this main license. */
+    public function addonLicenses(): HasMany
+    {
+        return $this->hasMany(License::class, 'parent_id')->orderBy('id');
+    }
+
+    public function isAddon(): bool
+    {
+        return $this->addon_id !== null;
+    }
+
+    /** Main licenses only (no add-on keys). */
+    public function scopeCore(Builder $q): Builder
+    {
+        return $q->whereNull('addon_id');
+    }
+
+    /** "LabelDesk Business" or "DDEX delivery (add-on)". */
+    public function productName(): string
+    {
+        return $this->isAddon() ? ($this->addon?->name ?? 'Add-on').' add-on' : setting('branding.product_name', 'LabelDesk').' '.($this->plan?->name ?? '');
     }
 
     public function activations(): HasMany
@@ -102,6 +138,10 @@ class License extends Model
 
     public function domainLimit(): int
     {
+        if ($this->isAddon() && $this->parent) {
+            return $this->parent->domainLimit();   // an add-on runs on the main license's domains
+        }
+
         return $this->domains_included + $this->domains_extra;
     }
 
@@ -113,7 +153,7 @@ class License extends Model
 
     public function maskedKey(): string
     {
-        return 'LDSK-••••-••••-••••-'.$this->key_last4;
+        return ($this->isAddon() ? 'LDAD' : 'LDSK').'-••••-••••-••••-'.$this->key_last4;
     }
 
     public function key(): string
@@ -149,6 +189,9 @@ class License extends Model
         if (in_array($this->status, [self::SUSPENDED, self::REVOKED], true)) {
             return false;
         }
+        if ($this->isAddon() && $this->parent && ! $this->parent->allowsUse()) {
+            return false;   // an add-on can't run without its main license
+        }
 
         return ! ($this->status === self::PENDING && $this->pending_until && $this->pending_until->isPast());
     }
@@ -173,12 +216,12 @@ class License extends Model
             return null;   // every version
         }
 
-        return Release::query()->where('published', true)->where('released_at', '<=', $this->support_until)
+        return Release::query()->forProduct($this->addon_id)->where('published', true)->where('released_at', '<=', $this->support_until)
             ->orderByDesc('released_at')->value('version');
     }
 
     public function mayDownload(Release $release): bool
     {
-        return $this->allowsUse() && ($this->support_until === null || $release->released_at->lte($this->support_until));
+        return (int) $release->addon_id === (int) $this->addon_id && $this->allowsUse() && ($this->support_until === null || $release->released_at->lte($this->support_until));
     }
 }

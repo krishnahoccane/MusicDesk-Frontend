@@ -7,7 +7,12 @@
         'extra_domains' => ['Add production domains', 'Each extra domain lets one more branded platform run on this license. Staging domains are always free.'],
         'change_plan' => ['Upgrade your plan', 'Your key, domains and dates stay the same. You only pay the difference.'],
         'convert_lifetime' => ['Switch to a lifetime license', 'Pay once and own it. We credit the unused part of your annual license. Includes 12 months of updates from today.'],
+        'addon' => ['Add an add-on', 'The add-on gets its own license key, for the domains on '.$license->number.'. You’ll see the key under Licenses › Add-ons once payment arrives.'],
     ];
+    if ($license->isAddon()) {
+        $titles['renewal'] = ['Renew your add-on', 'One more year of the '.$license->addon->name.' add-on, with updates. It keeps the same key.'];
+        $titles['updates_renewal'] = ['Renew add-on updates', 'Your lifetime '.$license->addon->name.' add-on keeps working either way. This adds 12 months of new versions.'];
+    }
     [$title, $intro] = $titles[$kind];
     $icons = ['razorpay' => 'zap', 'stripe' => 'card', 'paypal' => 'wallet', 'bank_transfer' => 'receipt'];
 @endphp
@@ -16,21 +21,21 @@
 
     <form method="POST" action="{{ route('licenses.buy.store', [$license, $kind]) }}" class="grid gap-6 lg:grid-cols-[1fr_380px]"
           x-data="{
-              quantity: {{ (int) $input['quantity'] }}, plan: @js($input['plan']?->code), gateway: @js(old('gateway', $gateways->first()?->code())), busy: false,
+              quantity: {{ (int) $input['quantity'] }}, plan: @js($input['plan']?->code), addon: @js($input['addon']?->code), billing: @js($input['billing'] ?? 'annual'), gateway: @js(old('gateway', $gateways->first()?->code())), busy: false,
               q: { lines: {{ json_encode(array_map(fn ($l) => ['description' => $l['description'], 'quantity' => $l['quantity'], 'amount' => $fmt($l['amount'])], $quote['lines'])) }}, subtotal: @js($fmt($quote['subtotal'])), tax: @js($fmt($quote['tax'])), tax_rate: {{ round($quote['tax_rate'] * 100, 2) }}, total: @js($fmt($quote['total'])) },
               async requote() {
-                  const r = await fetch(@js(route('licenses.buy.quote', [$license, $kind])), { method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/json', 'X-CSRF-TOKEN': document.querySelector('meta[name=csrf-token]').content }, body: JSON.stringify({ quantity: this.quantity, plan: this.plan }) });
+                  const r = await fetch(@js(route('licenses.buy.quote', [$license, $kind])), { method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/json', 'X-CSRF-TOKEN': document.querySelector('meta[name=csrf-token]').content }, body: JSON.stringify({ quantity: this.quantity, plan: this.plan, addon: this.addon, billing: this.billing }) });
                   if (r.ok) this.q = await r.json();
               },
           }"
-          x-init="$watch('quantity', () => requote()); $watch('plan', () => requote())" @submit="busy = true">
+          x-init="$watch('quantity', () => requote()); $watch('plan', () => requote()); $watch('addon', () => requote()); $watch('billing', () => requote())" @submit="busy = true">
         @csrf
         <div class="space-y-4">
             {{-- Current license --}}
             <div class="card card-pad">
                 <div class="flex flex-wrap items-center justify-between gap-3">
                     <div>
-                        <div class="font-semibold text-white">{{ setting('branding.product_name') }} {{ $license->plan->name }} <span class="text-ink-500">· {{ ucfirst($license->billing_type) }}</span></div>
+                        <div class="font-semibold text-white">{{ $license->isAddon() ? $license->productName().' for '.$license->parent?->number : setting('branding.product_name').' '.$license->plan->name }} <span class="text-ink-500">· {{ ucfirst($license->billing_type) }}</span></div>
                         <div class="font-mono text-xs text-ink-500">{{ $license->number }} · {{ $license->maskedKey() }}</div>
                     </div>
                     <span class="badge {{ \App\Support\Demo::statusBadge($license->displayStatus()) }}">{{ ucfirst($license->displayStatus()) }}</span>
@@ -64,9 +69,36 @@
                                 <input type="radio" name="plan" value="{{ $p->code }}" x-model="plan" class="sr-only">
                                 <span class="block font-medium text-white">{{ $p->name }}</span>
                                 <span class="text-xs text-ink-400">{{ $p->domains }} production domains · {{ money($license->billing_type === 'lifetime' ? ($p->price_lifetime ?? 0) : $p->price_annual)['display'] }}{{ $license->billing_type === 'lifetime' ? '' : ' / yr' }}</span>
+                                @if ($p->includedAddons->isNotEmpty())<span class="mt-1.5 block text-[11px] text-mint-400">Includes {{ $p->includedAddons->pluck('name')->join(', ', ' and ') }} (separate key)</span>@endif
                             </label>
                         @endforeach
                     </div>
+                </div>
+            @elseif ($kind === 'addon')
+                <div class="card card-pad">
+                    <div class="font-medium text-white">Add-on</div>
+                    <div class="mt-3 grid gap-2 sm:grid-cols-2">
+                        @foreach ($addons as $x)
+                            <label class="cursor-pointer rounded-xl border p-4 transition" :class="addon === '{{ $x->code }}' ? 'border-volt-500/60 bg-volt-500/10' : 'border-white/[0.08] hover:border-white/15'">
+                                <input type="radio" name="addon" value="{{ $x->code }}" x-model="addon" class="sr-only">
+                                <span class="block font-medium text-white">{{ $x->name }}</span>
+                                @if ($x->description)<span class="mt-0.5 block text-xs text-ink-400">{{ $x->description }}</span>@endif
+                                <span class="mt-1.5 block text-xs text-ink-300">{{ money($x->price_annual)['display'] }} / yr{{ $x->price_lifetime ? ' · '.money($x->price_lifetime)['display'].' lifetime' : '' }}</span>
+                            </label>
+                        @endforeach
+                    </div>
+                    <div class="mt-5 font-medium text-white">Billing</div>
+                    <div class="mt-3 grid gap-2 sm:grid-cols-2">
+                        <label class="cursor-pointer rounded-xl border p-4 transition" :class="billing === 'annual' ? 'border-volt-500/60 bg-volt-500/10' : 'border-white/[0.08] hover:border-white/15'">
+                            <input type="radio" name="billing" value="annual" x-model="billing" class="sr-only">
+                            <span class="block font-medium text-white">Annual</span><span class="text-xs text-ink-400">One year with updates; renew yearly.</span>
+                        </label>
+                        <label class="cursor-pointer rounded-xl border p-4 transition" :class="billing === 'lifetime' ? 'border-volt-500/60 bg-volt-500/10' : 'border-white/[0.08] hover:border-white/15'">
+                            <input type="radio" name="billing" value="lifetime" x-model="billing" class="sr-only">
+                            <span class="block font-medium text-white">Lifetime</span><span class="text-xs text-ink-400">Pay once, 12 months of updates. Not every add-on is sold as lifetime.</span>
+                        </label>
+                    </div>
+                    @error('purchase')<p class="mt-3 text-xs text-coral-400">{{ $message }}</p>@enderror
                 </div>
             @endif
 

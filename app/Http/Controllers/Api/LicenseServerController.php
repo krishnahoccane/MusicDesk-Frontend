@@ -63,6 +63,44 @@ class LicenseServerController extends Controller
         });
     }
 
+    /** POST /api/license/v1/addons/activate: activate a LabelDesk add-on (plugin) with its own key. */
+    public function activateAddon(Request $request): JsonResponse
+    {
+        return $this->run(function () use ($request) {
+            $data = $request->validate([
+                'key' => ['required', 'string', 'max:64'],
+                'addon' => ['required', 'string', 'max:40', 'regex:/^[a-z0-9_]{2,40}$/'],
+                'domain' => ['required', 'string', 'max:253'],
+                'version' => ['nullable', 'string', 'max:20'],
+                'php_version' => ['nullable', 'string', 'max:20'],
+                'instance_id' => ['nullable', 'string', 'max:100'],
+            ]);
+
+            return response()->json($this->activations->activateAddon($data['key'], $data['addon'], $data, $request->ip()));
+        }, fn (LicenseException $e) => $this->alertRefusal($e, $request, (string) $request->input('domain'), $this->licenses->findByKey((string) $request->input('key'))));
+    }
+
+    /** POST /api/license/v1/addons/check-in */
+    public function checkInAddon(Request $request): JsonResponse
+    {
+        return $this->run(function () use ($request) {
+            $data = $request->validate(['token' => ['required', 'string', 'max:4000'], 'version' => ['nullable', 'string', 'max:20'], 'php_version' => ['nullable', 'string', 'max:20']]);
+
+            return response()->json($this->activations->checkInAddon($data['token'], $data, $request->ip()));
+        }, fn (LicenseException $e) => $this->alertRefusal($e, $request, ...$this->tokenHint((string) $request->input('token'))));
+    }
+
+    /** POST /api/license/v1/addons/deactivate → 204 */
+    public function deactivateAddon(Request $request): JsonResponse
+    {
+        return $this->run(function () use ($request) {
+            $data = $request->validate(['token' => ['required', 'string', 'max:4000']]);
+            $this->activations->deactivateAddon($data['token']);
+
+            return response()->json(null, 204);
+        });
+    }
+
     /**
      * POST /api/license/v1/report: security webhook. A LabelDesk install calls this
      * whenever its own license check fails (no license, bad signature, wrong domain,

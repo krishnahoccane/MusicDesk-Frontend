@@ -39,7 +39,7 @@
                         <tr class="cursor-pointer" onclick="location.href='{{ route('admin.licenses.show', $l) }}'">
                             <td><a href="{{ route('admin.licenses.show', $l) }}" class="font-mono text-xs text-white hover:text-volt-300">{{ $l->number }}</a><div class="font-mono text-[11px] text-ink-500">{{ $l->maskedKey() }}</div></td>
                             <td><div class="text-ink-100">{{ $l->organisation->name }}</div><div class="text-[11px] text-ink-500">{{ $l->organisation->email }}</div></td>
-                            <td class="text-ink-300">{{ $l->plan->name }} · {{ ucfirst($l->billing_type) }}</td>
+                            <td class="text-ink-300">@if ($l->addon)<span class="badge badge-flare !text-[10px]">Add-on</span> {{ $l->addon->name }}{{ $l->included ? ' · included' : ' · '.ucfirst($l->billing_type) }}@else{{ $l->plan->name }} · {{ ucfirst($l->billing_type) }}@endif</td>
                             <td class="font-mono text-ink-200">{{ $l->domains_live }} / {{ $l->domainLimit() }}</td>
                             <td class="text-ink-300">{{ $l->expires_at ? local_time($l->expires_at)->format('M d, Y') : ($l->support_until ? 'updates until '.local_time($l->support_until)->format('M d, Y') : '—') }}</td>
                             <td><span class="badge badge-dot {{ Demo::statusBadge($st) }}">{{ $st }}</span></td>

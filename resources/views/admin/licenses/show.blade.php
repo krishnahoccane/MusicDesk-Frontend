@@ -4,7 +4,7 @@
     $org = $license->organisation;
     $statusBadge = ['paid' => 'badge-mint', 'awaiting_payment' => 'badge-amber', 'pending' => 'badge-ink', 'failed' => 'badge-coral', 'cancelled' => 'badge-ink', 'refunded' => 'badge-sky'];
 @endphp
-<x-layouts.app area="admin" :title="$license->number" :subtitle="$org->name.' · '.$license->plan->name.' '.ucfirst($license->billing_type)">
+<x-layouts.app area="admin" :title="$license->number" :subtitle="$org->name.' · '.($license->isAddon() ? $license->addon->name.' add-on'.($license->included ? ' (included with '.$license->plan->name.')' : ' '.ucfirst($license->billing_type)) : $license->plan->name.' '.ucfirst($license->billing_type))">
     <x-slot:eyebrow><a href="{{ route('admin.licenses') }}" class="hover:text-white">Admin · Licenses</a></x-slot:eyebrow>
     <x-slot:actions>
         <span class="badge badge-dot {{ Demo::statusBadge($st) }} !text-xs">{{ $st }}</span>
@@ -16,6 +16,12 @@
             <div class="text-sm font-medium text-mint-400">License key: copy it now and send it to the customer</div>
             <div class="mt-2 flex items-center gap-2"><code class="flex-1 rounded-xl border hairline bg-ink-950 px-4 py-3 font-mono tracking-[0.14em] text-white" x-text="key"></code><button type="button" class="btn btn-outline" @click="$copy(key)"><x-icon name="copy" class="size-4"/></button></div>
             <p class="mt-2 text-xs text-ink-400">The customer can also reveal it any time in their portal.</p>
+        </div>
+    @endif
+    @if ($license->isAddon())
+        <div class="mb-4 flex items-start gap-3 rounded-2xl border border-flare-500/25 bg-flare-500/[0.06] p-4 text-sm text-ink-200">
+            <x-icon name="layers" class="mt-0.5 size-4 shrink-0 text-flare-400"/>
+            <span>Add-on key for <a href="{{ route('admin.licenses.show', $license->parent) }}" class="font-mono text-white hover:text-volt-300">{{ $license->parent->number }}</a>. It activates only on that license’s live domains{{ $license->included ? ', and follows its dates and status because the plan includes it' : '' }}.</span>
         </div>
     @endif
     @if ($license->status_reason && in_array($license->status, ['suspended', 'revoked'], true))
@@ -44,6 +50,46 @@
                     @if ($license->notes)<div class="sm:col-span-4 rounded-xl bg-white/[0.03] p-3 text-xs text-ink-300"><span class="text-ink-500">Note:</span> {{ $license->notes }}</div>@endif
                 </div>
             </div>
+
+            {{-- Add-ons (main licenses) --}}
+            @unless ($license->isAddon())
+                <div class="card">
+                    <div class="flex flex-wrap items-center justify-between gap-3 p-5 sm:p-6">
+                        <div>
+                            <h2 class="font-semibold text-white">Add-ons</h2>
+                            <p class="mt-0.5 text-xs text-ink-500">Each add-on has its own key and runs on this license’s domains.</p>
+                        </div>
+                        @if ($availableAddons->isNotEmpty())
+                            <form method="POST" action="{{ route('admin.licenses.addons.store', $license) }}" class="flex flex-wrap gap-2">
+                                @csrf
+                                <select name="addon_id" class="input !w-auto !py-1.5 text-sm" aria-label="Add-on">@foreach ($availableAddons as $x)<option value="{{ $x->id }}">{{ $x->name }}</option>@endforeach</select>
+                                <select name="billing_type" class="input !w-auto !py-1.5 text-sm" aria-label="Billing"><option value="annual">Annual</option><option value="lifetime">Lifetime</option></select>
+                                <button class="btn btn-outline btn-sm" onclick="return confirm('Issue this add-on free of charge? Record a sale from Orders if they paid.')"><x-icon name="plus" class="size-3.5"/> Issue add-on</button>
+                            </form>
+                        @endif
+                    </div>
+                    <div class="overflow-x-auto">
+                        <table class="table">
+                            <thead><tr><th>Add-on</th><th>Key</th><th>Type</th><th>Domains</th><th>Renews / updates until</th><th>Status</th></tr></thead>
+                            <tbody>
+                                @forelse ($license->addonLicenses as $a)
+                                    @php $ast = $a->displayStatus(); @endphp
+                                    <tr class="cursor-pointer" onclick="location.href='{{ route('admin.licenses.show', $a) }}'">
+                                        <td><a href="{{ route('admin.licenses.show', $a) }}" class="text-white hover:text-volt-300">{{ $a->addon->name }}</a><div class="font-mono text-[11px] text-ink-500">{{ $a->number }}</div></td>
+                                        <td class="font-mono text-xs text-ink-300">{{ $a->maskedKey() }}</td>
+                                        <td>@if ($a->included)<span class="badge badge-mint">Included</span>@else<span class="text-ink-300">{{ ucfirst($a->billing_type) }}</span>@endif</td>
+                                        <td class="font-mono text-ink-200">{{ $a->domains_live }}</td>
+                                        <td class="text-ink-300">{{ $a->included ? 'With '.$license->number : ($a->expires_at ? local_time($a->expires_at)->format('M d, Y') : 'updates until '.local_time($a->support_until)?->format('M d, Y')) }}</td>
+                                        <td><span class="badge badge-dot {{ Demo::statusBadge($ast) }}">{{ $ast }}</span></td>
+                                    </tr>
+                                @empty
+                                    <tr><td colspan="6" class="py-8 text-center text-ink-500">No add-ons on this license.</td></tr>
+                                @endforelse
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            @endunless
 
             {{-- Domains --}}
             <div class="card">

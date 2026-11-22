@@ -4,7 +4,10 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\Addon;
+use App\Licensing\LicenseService;
 use App\Models\Currency;
+use App\Models\License;
+use App\Models\LicenseAddon;
 use App\Models\Plan;
 use App\Support\Settings;
 use Illuminate\Http\RedirectResponse;
@@ -19,6 +22,7 @@ class PlanController extends Controller
         return view('admin.plans', [
             'plans' => Plan::orderBy('sort')->get(),
             'addons' => Addon::orderBy('sort')->get(),
+            'licenseAddons' => LicenseAddon::with('plans')->withCount(['licenses as keys_count' => fn ($q) => $q->where('status', '!=', 'revoked')])->orderBy('sort')->orderBy('name')->get(),
             'currencies' => Currency::enabled()->get(),
         ]);
     }
@@ -78,6 +82,77 @@ class PlanController extends Controller
         }
 
         return back()->with('toast', 'Add-ons saved');
+    }
+
+    // ------------------------------------------------------------ licensed add-ons
+
+    public function storeLicenseAddon(Request $request, LicenseService $licenses): RedirectResponse
+    {
+        [$data, $plans] = $this->licenseAddonData($request);
+        $addon = LicenseAddon::create($data + ['sort' => (int) LicenseAddon::max('sort') + 1]);
+        $addon->plans()->sync($plans);
+        $issued = $this->issueToExisting($request, $addon, $licenses);
+
+        return back()->with('toast', "Add-on {$addon->name} created".($issued ? " · issued to {$issued} existing ".($issued === 1 ? 'license' : 'licenses') : ''));
+    }
+
+    public function updateLicenseAddon(Request $request, LicenseAddon $addon, LicenseService $licenses): RedirectResponse
+    {
+        [$data, $plans] = $this->licenseAddonData($request, $addon);
+        $addon->update($data);
+        $addon->plans()->sync($plans);
+        $issued = $this->issueToExisting($request, $addon, $licenses);
+
+        return back()->with('toast', "{$addon->name} saved".($issued ? " · issued to {$issued} existing ".($issued === 1 ? 'license' : 'licenses') : ''));
+    }
+
+    public function destroyLicenseAddon(LicenseAddon $addon): RedirectResponse
+    {
+        if ($addon->licenses()->exists() || $addon->releases()->exists()) {
+            $addon->update(['active' => false]);
+
+            return back()->with('toast', "{$addon->name} has keys or releases, so it was hidden instead of deleted");
+        }
+        $addon->delete();
+
+        return back()->with('toast', 'Add-on deleted');
+    }
+
+    /** @return array{0: array, 1: int[]} */
+    private function licenseAddonData(Request $request, ?LicenseAddon $addon = null): array
+    {
+        $data = $request->validate([
+            'name' => ['required', 'string', 'max:80'],
+            'code' => ['required', 'alpha_dash', 'max:40', Rule::unique('license_addons', 'code')->ignore($addon?->id)],
+            'description' => ['nullable', 'string', 'max:300'],
+            'price_annual' => ['required', 'numeric', 'min:0', 'max:1000000'],
+            'price_lifetime' => ['nullable', 'numeric', 'min:0', 'max:1000000'],
+            'plans' => ['nullable', 'array'],
+            'plans.*' => ['integer', 'exists:plans,id'],
+        ]);
+
+        return [[
+            'name' => $data['name'], 'code' => strtolower($data['code']), 'description' => $data['description'] ?? null,
+            'price_annual' => $data['price_annual'], 'price_lifetime' => $data['price_lifetime'] ?? null, 'active' => $request->boolean('active'),
+        ], array_map('intval', $data['plans'] ?? [])];
+    }
+
+    /** Optional: give the add-on key now to live licenses on the plans that include it (otherwise at their next purchase or change). */
+    private function issueToExisting(Request $request, LicenseAddon $addon, LicenseService $licenses): int
+    {
+        if (! $request->boolean('issue_existing') || $addon->plans->isEmpty()) {
+            return 0;
+        }
+        $actor = LicenseService::actor($request->user());
+        $count = 0;
+        License::query()->core()->whereIn('plan_id', $addon->plans()->pluck('plans.id'))->whereIn('status', [License::ACTIVE, License::PENDING])
+            ->whereDoesntHave('addonLicenses', fn ($q) => $q->where('addon_id', $addon->id)->where('status', '!=', License::REVOKED))
+            ->each(function (License $license) use ($licenses, $actor, &$count) {
+                $licenses->syncAddons($license, $actor);
+                $count++;
+            });
+
+        return $count;
     }
 
     public function updateCoupons(Request $request, Settings $settings): RedirectResponse

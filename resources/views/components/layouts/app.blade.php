@@ -5,8 +5,8 @@
     $org = $user?->organisation;
     $isAdmin = $area === 'admin';
     // Counts that need attention, shown as coral badges in the admin menu.
-    $openAlerts = $isAdmin ? \App\Models\LicenseAlert::where('status', 'open')->count() : 0;
-    $openTickets = $isAdmin ? \App\Models\SupportTicket::where('status', 'open')->count() : 0;
+    $openAlerts = $isAdmin && $user?->canAdmin('security') ? \App\Models\LicenseAlert::where('status', 'open')->count() : 0;
+    $openTickets = $isAdmin && $user?->canAdmin('support') ? \App\Models\SupportTicket::where('status', 'open')->count() : 0;
     $nav = $isAdmin
         ? [
             'Overview' => [
@@ -36,6 +36,9 @@
                 ['Invoicing', 'admin.settings', ['invoice'], 'receipt', null],
                 ['Localisation', 'admin.settings', ['general'], 'settings', null],
             ],
+            'Administration' => [
+                ['Team & roles', 'admin.team', [], 'user-plus', null],
+            ],
         ]
         : [
             'Portal' => [
@@ -49,6 +52,20 @@
                 ['Settings', 'dashboard.settings', [], 'settings', null],
             ],
         ];
+    // Only show admin areas the member's role includes (AdminRole::PERMISSIONS).
+    if ($isAdmin) {
+        $areaFor = fn ($route, $params) => match (true) {
+            $route === 'admin.dashboard' => null,
+            $route === 'admin.settings' => \App\Http\Middleware\EnsureAdminPermission::SETTINGS[$params[0]] ?? 'payments',
+            in_array($route, ['admin.orders', 'admin.invoices'], true) => 'sales',
+            $route === 'admin.license-status' => 'security',
+            in_array($route, ['admin.plans', 'admin.pages'], true) => 'storefront',
+            in_array($route, ['admin.gateways', 'admin.currencies'], true) => 'payments',
+            default => substr($route, 6),   // admin.licenses → licenses, admin.team → team …
+        };
+        $nav = collect($nav)->map(fn ($items) => array_values(array_filter($items, fn ($i) => ($a = $areaFor($i[1], $i[2])) === null || $user?->canAdmin($a))))
+            ->filter()->all();
+    }
     $isActive = fn ($route, $params) => (request()->routeIs($route) || ($route !== 'dashboard' && request()->routeIs($route.'.*')))
         && (empty($params) || request()->route('group') === $params[0]);
 @endphp
@@ -141,7 +158,7 @@
                             <span class="grid size-8 place-items-center rounded-lg bg-gradient-to-br from-volt-500 to-flare-500 text-xs font-semibold text-white">{{ $user?->initials() }}</span>
                             <span class="hidden text-left md:block">
                                 <span class="block text-[13px] font-medium leading-tight text-white">{{ $user?->name }}</span>
-                                <span class="block text-[11px] capitalize leading-tight text-ink-400">{{ $isAdmin ? 'Site admin' : $user?->role }}</span>
+                                <span class="block text-[11px] capitalize leading-tight text-ink-400">{{ $isAdmin ? ($user?->adminRole?->name ?? 'Site admin') : $user?->role }}</span>
                             </span>
                         </button>
                         <div x-show="o" x-cloak @click.outside="o = false" x-transition.origin.top.right

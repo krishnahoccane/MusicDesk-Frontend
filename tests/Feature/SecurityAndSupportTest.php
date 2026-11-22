@@ -40,7 +40,7 @@ class SecurityAndSupportTest extends TestCase
 
     private function business(): License
     {
-        return License::whereHas('plan', fn ($q) => $q->where('code', 'business'))->firstOrFail();
+        return License::core()->whereHas('plan', fn ($q) => $q->where('code', 'business'))->firstOrFail();
     }
 
     // ------------------------------------------------------------ security webhook
@@ -91,7 +91,7 @@ class SecurityAndSupportTest extends TestCase
         $this->assertSame('server', $alert->source);
 
         // Domain limit reached is a customer problem, not a security one.
-        $full = License::where('billing_type', 'annual')->whereHas('plan', fn ($q) => $q->where('code', 'starter'))->firstOrFail();   // 1 of 1 used
+        $full = License::core()->where('billing_type', 'annual')->whereHas('plan', fn ($q) => $q->where('code', 'starter'))->firstOrFail();   // 1 of 1 used
         $this->postJson('/api/license/v1/activate', ['key' => $full->key(), 'domain' => 'fifth.example.com'])->assertStatus(409);
         $this->assertFalse(LicenseAlert::where('domain', 'fifth.example.com')->exists());
 

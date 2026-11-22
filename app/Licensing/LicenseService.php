@@ -3,6 +3,7 @@
 namespace App\Licensing;
 
 use App\Models\License;
+use App\Models\LicenseAddon;
 use App\Models\LicenseEvent;
 use App\Models\Organisation;
 use App\Models\Plan;
@@ -55,11 +56,113 @@ class LicenseService
                 'notes' => $options['notes'] ?? null,
             ]);
             $this->event($license, 'created', ['plan' => $plan->code, 'billing_type' => $license->billing_type, 'domains' => $license->domainLimit()], $actor);
+            $this->syncAddons($license, $actor);
 
             return $license;
         });
 
         return [$license, $key];
+    }
+
+    /**
+     * An add-on for a main license: its own license with its own LDAD- key.
+     * Included add-ons (free with the plan) follow the main license's dates and status;
+     * bought ones have their own term.
+     *
+     * @param  array{billing_type?: string, price_paid?: float, currency?: string, notes?: ?string}  $options
+     * @return array{0: License, 1: string}
+     */
+    public function createAddon(License $parent, LicenseAddon $addon, bool $included, array $options, string $actor): array
+    {
+        if ($parent->isAddon()) {
+            throw new LicenseException('invalid_parent', 'Add-ons attach to a main license.', 422);
+        }
+        if ($parent->addonLicenses()->where('addon_id', $addon->id)->where('status', '!=', License::REVOKED)->exists()) {
+            throw new LicenseException('addon_exists', "{$parent->number} already has the {$addon->name} add-on.", 409, 'addon');
+        }
+        $billing = $included ? $parent->billing_type : ($options['billing_type'] ?? 'annual');
+        if (! in_array($billing, ['annual', 'lifetime'], true)) {
+            throw new LicenseException('invalid_billing_type', 'Billing type must be annual or lifetime.', 422, 'billing_type');
+        }
+        $key = LicenseKey::generate('LDAD');
+        $now = now();
+
+        $license = DB::transaction(function () use ($parent, $addon, $included, $options, $billing, $key, $now, $actor) {
+            $license = License::create([
+                'number' => $this->nextNumber(),
+                'organisation_id' => $parent->organisation_id,
+                'plan_id' => $parent->plan_id,
+                'addon_id' => $addon->id,
+                'parent_id' => $parent->id,
+                'included' => $included,
+                'billing_type' => $billing,
+                'status' => $included ? $parent->status : License::ACTIVE,
+                'status_reason' => $included ? $parent->status_reason : null,
+                'pending_until' => $included ? $parent->pending_until : null,
+                'key_hash' => LicenseKey::hash($key),
+                'key_encrypted' => $key,
+                'key_last4' => substr($key, -4),
+                'domains_included' => 0,
+                'domains_extra' => 0,
+                'purchased_at' => $now,
+                'expires_at' => $included ? $parent->expires_at : ($billing === 'annual' ? $now->copy()->addYear() : null),
+                'support_until' => $included ? $parent->support_until : $now->copy()->addYear(),
+                'auto_renew' => ! $included && $billing === 'annual',
+                'price_paid' => $included ? 0 : (float) ($options['price_paid'] ?? 0),
+                'currency' => strtoupper($options['currency'] ?? $parent->currency ?? 'USD'),
+                'notes' => $options['notes'] ?? null,
+            ]);
+            $this->event($license, 'created', ['addon' => $addon->code, 'parent' => $parent->number, 'billing_type' => $billing, 'included' => $included], $actor);
+            $this->event($parent, 'addon_added', ['addon' => $addon->name, 'number' => $license->number, 'included' => $included], $actor);
+
+            return $license;
+        });
+
+        return [$license, $key];
+    }
+
+    /**
+     * Keep add-ons in step with the main license's plan:
+     *  - add-ons the plan includes get a key (or an existing bought one becomes included, so it no longer needs renewing)
+     *  - included add-ons the plan no longer includes are suspended
+     *  - included add-ons mirror the main license's status and dates
+     */
+    public function syncAddons(License $parent, string $actor): void
+    {
+        if ($parent->isAddon()) {
+            return;
+        }
+        $parent->loadMissing('plan.includedAddons');
+        $included = $parent->plan?->includedAddons ?? collect();
+        $children = $parent->addonLicenses()->with('addon')->get();
+
+        foreach ($included as $addon) {
+            $child = $children->first(fn (License $c) => $c->addon_id === $addon->id && $c->status !== License::REVOKED);
+            if (! $child) {
+                $this->createAddon($parent, $addon, true, [], $actor);
+            } elseif (! $child->included) {
+                $child->update(['included' => true, 'auto_renew' => false]);
+                $this->event($child, 'now_included', ['plan' => $parent->plan->code], $actor);
+            }
+        }
+
+        foreach ($parent->addonLicenses()->where('included', true)->get() as $child) {
+            if (! $included->contains('id', $child->addon_id)) {
+                if ($child->status !== License::REVOKED) {
+                    $child->update(['included' => false, 'status' => License::SUSPENDED, 'status_reason' => 'Not included in the '.$parent->plan?->name.' plan']);
+                    $this->event($child, 'suspended', ['reason' => 'No longer included in the plan'], $actor);
+                }
+
+                continue;
+            }
+            $child->fill([
+                'billing_type' => $parent->billing_type, 'expires_at' => $parent->expires_at, 'support_until' => $parent->support_until,
+                'max_version' => null, 'status' => $parent->status, 'status_reason' => $parent->status_reason, 'pending_until' => $parent->pending_until,
+            ]);
+            if ($child->isDirty()) {
+                $child->save();
+            }
+        }
     }
 
     /** Annual: one more year from the later of now and the current expiry (updates included). */
@@ -212,7 +315,7 @@ class LicenseService
     /** New key; the old one stops working at the next check-in. Returns the new plain key. */
     public function regenerateKey(License $license, string $actor): string
     {
-        $key = LicenseKey::generate();
+        $key = LicenseKey::generate($license->isAddon() ? 'LDAD' : 'LDSK');
         $this->change($license, 'key_regenerated', function (License $l) use ($key) {
             $l->key_hash = LicenseKey::hash($key);
             $l->key_encrypted = $key;
@@ -244,6 +347,7 @@ class LicenseService
             $mutate($license);
             $license->save();
             $this->event($license, $event, $details ?: null, $actor);
+            $this->syncAddons($license, $actor);
 
             return $license;
         });

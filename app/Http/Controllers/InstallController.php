@@ -277,7 +277,7 @@ class InstallController extends Controller
         ]);
 
         $admin = new User(['name' => $data['name'], 'email' => strtolower($data['email']), 'password' => $data['password'], 'role' => 'owner']);
-        $admin->forceFill(['is_admin' => true, 'email_verified_at' => now()])->save();
+        $admin->forceFill(['is_admin' => true, 'admin_role_id' => \App\Models\AdminRole::owner()->id, 'invite_accepted_at' => now(), 'email_verified_at' => now()])->save();
 
         $settings->set(['branding.site_name' => $data['site_name']]);
 

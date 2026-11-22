@@ -14,6 +14,8 @@ use Illuminate\Support\Facades\DB;
  *  - domains are normalised (lowercase, no scheme / path / port / www.)
  *  - a domain can be live on one license only
  *  - max 3 domain moves per license in 30 days
+ *  - add-on licenses run only on domains that are live on their main license (no slots of
+ *    their own), and lose a domain when the main license does
  */
 class ActivationService
 {
@@ -70,6 +72,7 @@ class ActivationService
 
             $old = $activation->domain;
             $activation->update(['status' => LicenseActivation::DEACTIVATED, 'deactivated_at' => now()]);
+            $this->cascadeDeactivate($license, $old, $actor);
             [$domain, $env] = $this->checkNew($license, $newDomain, $activation->environment);
             $new = $license->activations()->create(['domain' => $domain, 'environment' => $env, 'status' => LicenseActivation::PENDING]);
             $this->licenses->event($license, 'domain_moved', ['from' => $old, 'to' => $domain], $actor);
@@ -85,6 +88,21 @@ class ActivationService
         }
         $activation->update(['status' => LicenseActivation::DEACTIVATED, 'deactivated_at' => now()]);
         $this->licenses->event($activation->license, 'domain_deactivated', ['domain' => $activation->domain], $actor);
+        $this->cascadeDeactivate($activation->license, $activation->domain, $actor);
+    }
+
+    /** A main license lost a domain: its add-ons lose it too. */
+    private function cascadeDeactivate(License $license, string $domain, string $actor): void
+    {
+        if ($license->isAddon()) {
+            return;
+        }
+        LicenseActivation::query()->with('license')->where('domain', $domain)->where('status', '!=', LicenseActivation::DEACTIVATED)
+            ->whereIn('license_id', $license->addonLicenses()->pluck('id'))->get()
+            ->each(function (LicenseActivation $a) use ($actor) {
+                $a->update(['status' => LicenseActivation::DEACTIVATED, 'deactivated_at' => now()]);
+                $this->licenses->event($a->license, 'domain_deactivated', ['domain' => $a->domain, 'reason' => 'Deactivated on the main license'], $actor);
+            });
     }
 
     public function requestCheckIn(LicenseActivation $activation, string $actor): void
@@ -107,7 +125,13 @@ class ActivationService
         $license = $this->licenses->findByKey($key) ?? throw new LicenseException('invalid_key', 'License key not recognised.', 404);
         $this->requireUsable($license);
 
-        $activation = DB::transaction(function () use ($license, $domain, $install, $ip) {
+        return $this->response($license->fresh(), $this->activateOn($license, $domain, $install, $ip));
+    }
+
+    /** Activate (or re-activate) a normalised, valid domain on a usable license. */
+    private function activateOn(License $license, string $domain, array $install, ?string $ip): LicenseActivation
+    {
+        return DB::transaction(function () use ($license, $domain, $install, $ip) {
             $license = License::query()->whereKey($license->id)->lockForUpdate()->firstOrFail();
             $existing = $license->activations()->where('domain', $domain)->where('status', '!=', LicenseActivation::DEACTIVATED)->first();
 
@@ -129,8 +153,6 @@ class ActivationService
 
             return $existing;
         });
-
-        return $this->response($license->fresh(), $activation);
     }
 
     /** POST /api/license/v1/check-in */
@@ -150,6 +172,115 @@ class ActivationService
     {
         [, $activation] = $this->fromToken($token, allowExpired: true);
         $this->deactivate($activation, 'license server');
+    }
+
+    // ------------------------------------------------------------ Add-on keys (LabelDesk plugins)
+
+    /**
+     * POST /api/license/v1/addons/activate: a LabelDesk install activates a plugin with the
+     * add-on's own key (LDAD-…). The key must belong to that add-on, and the domain must be live
+     * on the add-on's main license (add-ons have no domain slots of their own).
+     */
+    public function activateAddon(string $key, string $addon, array $install, ?string $ip): array
+    {
+        $domain = self::normalise((string) ($install['domain'] ?? ''));
+        if (! self::validDomain($domain)) {
+            throw new LicenseException('invalid_domain', 'That is not a valid domain.', 422, 'domain');
+        }
+        $this->requireNotBlocked($domain);
+
+        $license = $this->licenses->findByKey($key) ?? throw new LicenseException('invalid_key', 'License key not recognised.', 404);
+        if (! $license->isAddon()) {
+            throw new LicenseException('addon_mismatch', 'This is a main license key. Enter the add-on’s own key (LDAD-…) from your MusicDesk account.', 409, 'key');
+        }
+        if ($license->addon?->code !== $addon) {
+            throw new LicenseException('addon_mismatch', 'This key is for the '.($license->addon?->name ?? 'another').' add-on.', 409, 'key');
+        }
+        $this->requireAddonUsable($license);
+
+        return $this->addonResponse($license->fresh(), $this->activateOn($license, $domain, $install, $ip));
+    }
+
+    /** POST /api/license/v1/addons/check-in (accepts expired tokens, like the main check-in). */
+    public function checkInAddon(string $token, array $install, ?string $ip): array
+    {
+        [$license, $activation] = $this->fromAddonToken($token);
+        $this->requireNotBlocked($activation->domain);
+        $this->requireAddonUsable($license);
+        $this->record($activation, $install, $ip);
+        $activation->update(['check_in_requested' => false]);
+
+        return $this->addonResponse($license, $activation->fresh());
+    }
+
+    /** POST /api/license/v1/addons/deactivate: frees the domain on the add-on key. */
+    public function deactivateAddon(string $token): void
+    {
+        [, $activation] = $this->fromAddonToken($token);
+        $this->deactivate($activation, 'license server');
+    }
+
+    /**
+     * Add-ons stop when their key (or its main license) may not be used, and also when the
+     * add-on key has expired (LabelDesk itself turns read-only instead).
+     */
+    private function requireAddonUsable(License $license): void
+    {
+        $parent = $license->parent;
+        if ($parent && ! $parent->allowsUse()) {
+            $status = $parent->displayStatus();
+            throw new LicenseException('license_'.$status, "The main license {$parent->number} is {$status}. Add-ons run only while it is usable.", 403);
+        }
+        $status = $license->displayStatus();
+        if (! $license->allowsUse() || $status === 'expired') {
+            throw new LicenseException('license_'.$status, 'This add-on key is '.$status.($license->status_reason ? ': '.$license->status_reason : '.'), 403);
+        }
+    }
+
+    /** @return array{0: License, 1: LicenseActivation} */
+    private function fromAddonToken(string $token): array
+    {
+        $claims = $this->tokens->verify($token, allowExpired: true);
+        if (($claims['typ'] ?? null) !== 'addon') {
+            throw new LicenseException('invalid_token', 'This is not an add-on token.', 401);
+        }
+        $activation = LicenseActivation::query()->where('uuid', $claims['act'] ?? '')->with('license.addon')->first();
+        $license = $activation?->license;
+        if (! $license || ! $license->isAddon() || $license->uuid !== ($claims['lic'] ?? null) || $license->addon?->code !== ($claims['addon'] ?? null)) {
+            throw new LicenseException('activation_not_found', 'This add-on is not activated on this domain. Activate it again with its key.', 404);
+        }
+        if ($activation->status === LicenseActivation::DEACTIVATED) {
+            throw new LicenseException('activation_deactivated', 'This domain was deactivated on the add-on key. Activate it again with the key.', 403);
+        }
+
+        return [$license, $activation];
+    }
+
+    /**
+     * Add-on token claims (verified by LabelDesk's AddonLicenseService): iss, iat, exp,
+     * typ "addon", addon, dom, act, status (active | expiring), expires (Unix or null), lic.
+     */
+    private function addonResponse(License $license, LicenseActivation $activation): array
+    {
+        // A pending (bank transfer) key works during its 14-day window: report it as active.
+        $status = $license->displayStatus() === 'expiring' ? 'expiring' : 'active';
+        $expires = $license->billing_type === 'lifetime' ? null : $license->expires_at;
+
+        return [
+            'token' => $this->tokens->issue([
+                'typ' => 'addon',
+                'addon' => $license->addon->code,
+                'lic' => $license->uuid,
+                'act' => $activation->uuid,
+                'dom' => $activation->domain,
+                'status' => $status,
+                'expires' => $expires?->timestamp,
+            ]),
+            'status' => $status,
+            'expires_at' => $expires?->utc()->format('Y-m-d\TH:i:s\Z'),
+            'support_until' => $license->support_until?->utc()->format('Y-m-d\TH:i:s\Z'),
+            'addon' => $license->addon->code,
+        ];
     }
 
     /** Offline activation for servers without internet: a token valid 365 days, delivered as a file. */
@@ -192,10 +323,20 @@ class ActivationService
         if ($license->activations()->where('domain', $domain)->where('status', '!=', LicenseActivation::DEACTIVATED)->exists()) {
             throw new LicenseException('domain_exists', 'That domain is already on this license.');
         }
+        // One license per product per domain (LabelDesk itself, or one add-on).
         $elsewhere = LicenseActivation::query()->where('domain', $domain)->where('status', '!=', LicenseActivation::DEACTIVATED)
-            ->where('license_id', '!=', $license->id)->exists();
+            ->where('license_id', '!=', $license->id)
+            ->whereHas('license', fn ($l) => $license->addon_id ? $l->where('addon_id', $license->addon_id) : $l->whereNull('addon_id'))->exists();
         if ($elsewhere) {
             throw new LicenseException('domain_in_use', 'That domain is already active on another license.');
+        }
+        if ($license->isAddon()) {
+            $main = $license->parent?->activations()->where('domain', $domain)->where('status', '!=', LicenseActivation::DEACTIVATED)->first();
+            if (! $main) {
+                throw new LicenseException('addon_domain_not_licensed', "Add {$domain} to the main license {$license->parent?->number} first. Add-ons run on its domains.", 409, 'domain');
+            }
+
+            return [$domain, $main->environment];
         }
         if ($env === 'production' && $license->domainsUsed() >= $license->domainLimit()) {
             throw new LicenseException('domain_limit_reached', 'All '.$license->domainLimit().' production domains on this license are in use. Deactivate one or buy an extra domain.');
@@ -233,6 +374,9 @@ class ActivationService
     private function fromToken(string $token, bool $allowExpired): array
     {
         $claims = $this->tokens->verify($token, $allowExpired);
+        if (($claims['typ'] ?? null) === 'addon') {
+            throw new LicenseException('invalid_token', 'This is an add-on token. Use the /addons endpoints.', 401);
+        }
         $activation = LicenseActivation::query()->where('uuid', $claims['act'] ?? '')->with('license')->first();
         if (! $activation || $activation->license?->uuid !== ($claims['lic'] ?? null)) {
             throw new LicenseException('activation_not_found', 'This install is not activated. Activate it again with the license key.', 404);
@@ -258,6 +402,9 @@ class ActivationService
             // 10 days after this date and locked afterwards until renewed.
             'expires' => $license->billing_type === 'lifetime' ? null : $license->expires_at?->timestamp,
             'max_version' => $license->maxVersion(),
+            // Add-on keys: which add-on, and the main license it belongs to.
+            'addon' => $license->addon?->code,
+            'parent' => $license->parent?->uuid,
         ], $ttlDays);
     }
 
@@ -278,6 +425,7 @@ class ActivationService
             'expires_at' => $license->billing_type === 'lifetime' ? null : $license->expires_at?->utc()->format('Y-m-d\TH:i:s\Z'),
             'max_version' => $license->maxVersion(),
             'check_in_requested' => (bool) $activation->check_in_requested,
+            'addon' => $license->addon?->code,
             'messages' => $messages,
         ];
     }

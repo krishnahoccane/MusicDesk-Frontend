@@ -3,6 +3,7 @@
 namespace App\Licensing;
 
 use App\Models\License;
+use App\Models\LicenseAddon;
 use App\Models\LicenseActivation;
 use App\Models\Organisation;
 use App\Models\Release;
@@ -17,9 +18,39 @@ class LicensePresenter
             return [];
         }
 
-        return $org->licenses()->with(['plan', 'activations' => fn ($q) => $q->where('status', '!=', LicenseActivation::DEACTIVATED)->orderBy('id')])
+        $live = fn ($q) => $q->where('status', '!=', LicenseActivation::DEACTIVATED)->orderBy('id');
+        $catalogue = LicenseAddon::active()->get();
+
+        return $org->licenses()->core()->with(['plan', 'activations' => $live, 'addonLicenses.addon', 'addonLicenses.activations' => $live])
             ->orderByRaw("case status when 'revoked' then 1 else 0 end")->latest('purchased_at')->get()
-            ->map(fn (License $l) => self::present($l))->all();
+            ->map(fn (License $l) => self::present($l) + self::addons($l, $catalogue))->all();
+    }
+
+    /** The license's add-on keys, and add-ons it could still buy. */
+    private static function addons(License $l, $catalogue): array
+    {
+        $owned = $l->addonLicenses->where('status', '!=', License::REVOKED);
+
+        return [
+            'addons' => $l->addonLicenses->map(fn (License $a) => [
+                'id' => $a->number,
+                'uid' => $a->uuid,
+                'name' => $a->addon?->name ?? 'Add-on',
+                'code' => $a->addon?->code,
+                'key' => $a->maskedKey(),
+                'included' => $a->included,
+                'type' => ucfirst($a->billing_type),
+                'status' => $a->displayStatus(),
+                'status_reason' => $a->status_reason,
+                'renews' => $a->expires_at ? local_time($a->expires_at)->format('M d, Y') : null,
+                'support_until' => $a->support_until ? local_time($a->support_until)->format('M d, Y') : null,
+                'support_expired' => $a->supportExpired(),
+                'domains' => $a->activations->map(fn (LicenseActivation $x) => ['domain' => $x->domain, 'online' => $x->isOnline(), 'version' => $x->version])->values()->all(),
+            ])->values()->all(),
+            'available_addons' => $l->allowsUse() ? $catalogue->reject(fn (LicenseAddon $x) => $owned->contains('addon_id', $x->id))
+                ->map(fn (LicenseAddon $x) => ['code' => $x->code, 'name' => $x->name, 'description' => $x->description,
+                    'annual' => money($x->price_annual)['display'], 'lifetime' => $x->price_lifetime ? money($x->price_lifetime)['display'] : null])->values()->all() : [],
+        ];
     }
 
     public static function present(License $l): array

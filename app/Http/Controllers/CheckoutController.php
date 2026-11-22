@@ -157,13 +157,15 @@ class CheckoutController extends Controller
         }
 
         $currency = $this->currencies->current();
-        $upgrades = Plan::active()->where('price_annual', '>', $license->plan->price_annual)->get();
-        $input = $this->licenseInput($request, $kind, $upgrades);
+        $upgrades = Plan::active()->where('price_annual', '>', $license->plan->price_annual)->with('includedAddons')->get();
+        $addons = $kind === 'addon' ? $pricer->availableAddons($license) : collect();
+        $input = $this->licenseInput($request, $kind, $upgrades, $addons);
 
         return view('checkout.license', [
             'license' => $license,
             'kind' => $kind,
             'upgrades' => $upgrades,
+            'addons' => $addons,
             'input' => $input,
             'quote' => $pricer->quote($license, $kind, $input, $currency),
             'gateways' => $this->gateways->availableFor($currency),
@@ -175,7 +177,7 @@ class CheckoutController extends Controller
     {
         $this->authorizeLicense($request, $license);
         try {
-            $q = app(LicensePricer::class)->quote($license, $kind, $this->licenseInput($request, $kind, Plan::active()->get()), $this->currencies->current());
+            $q = app(LicensePricer::class)->quote($license, $kind, $this->licenseInput($request, $kind, Plan::active()->get(), \App\Models\LicenseAddon::active()->get()), $this->currencies->current());
         } catch (\App\Licensing\LicenseException $e) {
             return response()->json(['error' => $e->getMessage()], 422);
         }
@@ -191,7 +193,8 @@ class CheckoutController extends Controller
     {
         $this->authorizeLicense($request, $license);
         abort_unless(isset(Order::KINDS[$kind]) && $kind !== 'new_license', 404);
-        $request->validate(['gateway' => ['required', 'string'], 'terms' => ['accepted'], 'quantity' => ['nullable', 'integer', 'min:1', 'max:50'], 'plan' => ['nullable', 'string']]);
+        $request->validate(['gateway' => ['required', 'string'], 'terms' => ['accepted'], 'quantity' => ['nullable', 'integer', 'min:1', 'max:50'], 'plan' => ['nullable', 'string'],
+            'addon' => ['nullable', 'string', 'max:40'], 'billing' => ['nullable', 'in:annual,lifetime']]);
 
         $currency = $this->currencies->current();
         $gateway = $this->gateways->availableFor($currency)->first(fn ($g) => $g->code() === $request->input('gateway'));
@@ -200,7 +203,7 @@ class CheckoutController extends Controller
         }
 
         try {
-            $q = app(LicensePricer::class)->quote($license->load('plan', 'organisation'), $kind, $this->licenseInput($request, $kind, Plan::active()->get()), $currency);
+            $q = app(LicensePricer::class)->quote($license->load('plan', 'organisation'), $kind, $this->licenseInput($request, $kind, Plan::active()->get(), \App\Models\LicenseAddon::active()->get()), $currency);
         } catch (\App\Licensing\LicenseException $e) {
             return back()->withErrors(['purchase' => $e->getMessage()]);
         }
@@ -212,7 +215,7 @@ class CheckoutController extends Controller
             'plan_id' => $q['plan_id'],
             'license_id' => $license->id,
             'kind' => $kind,
-            'billing_type' => $kind === 'convert_lifetime' ? 'lifetime' : $license->billing_type,
+            'billing_type' => $q['billing_type'],
             'extra_domains' => $q['extra_domains'],
             'lines' => $q['lines'],
             'currency' => $q['currency'],
@@ -224,17 +227,22 @@ class CheckoutController extends Controller
             'total' => $q['total'],
             'gateway' => $gateway->code(),
             'status' => 'pending',
+            'meta' => $q['addon_id'] ? ['addon_id' => $q['addon_id']] : null,
         ]);
 
         return $this->startPayment($order);
     }
 
-    /** @return array{quantity: int, plan: ?Plan} */
-    private function licenseInput(Request $request, string $kind, $plans): array
+    /** @return array{quantity: int, plan: ?Plan, addon: ?\App\Models\LicenseAddon, billing: string} */
+    private function licenseInput(Request $request, string $kind, $plans, $addons = null): array
     {
+        $addons ??= collect();
+
         return [
             'quantity' => max(1, min(50, (int) $request->input('quantity', 1))),
             'plan' => $kind === 'change_plan' ? ($plans->firstWhere('code', $request->input('plan')) ?? $plans->first()) : null,
+            'addon' => $kind === 'addon' ? ($addons->firstWhere('code', $request->input('addon')) ?? $addons->first()) : null,
+            'billing' => $request->input('billing') === 'lifetime' ? 'lifetime' : 'annual',
         ];
     }
 

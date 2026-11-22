@@ -136,6 +136,28 @@
                 </div>
             </div>
         </div>
+
+        @if (! empty($addonDownloads))
+            <div id="addons" class="mt-4 card">
+                <div class="p-5 sm:p-6"><h2 class="font-semibold text-white">Add-on packages</h2><p class="text-sm text-ink-400">Upload the .zip in {{ setting('branding.product_name') }} under Administration › Add-ons, then activate it with the add-on’s own key (Licenses › Add-ons). Packages are signed by MusicDesk; don’t unzip or change them.</p></div>
+                <div class="divide-y divide-white/[0.04] border-t hairline">
+                    @foreach ($addonDownloads as $a)
+                        @foreach ($a['releases'] as $i => $r)
+                            <div class="flex flex-wrap items-center justify-between gap-3 px-5 py-3 sm:px-6">
+                                <span class="text-sm text-ink-100">{{ $a['name'] }} <span class="font-mono">v{{ $r['version'] }}</span>@if ($i === 0) <span class="badge badge-mint !text-[10px]">Latest</span>@endif <span class="text-xs text-ink-500">{{ $r['date'] }} · key {{ $a['number'] }} for {{ $a['parent'] }}</span></span>
+                                @if (! $r['allowed'])
+                                    <span class="text-xs text-amber-glow">Outside this add-on’s updates period</span>
+                                @elseif ($r['has_file'])
+                                    <a href="{{ route('dashboard.downloads.file', [$r['id'], 'license' => $a['uid']]) }}" class="btn btn-ghost btn-sm"><x-icon name="download" class="size-3.5"/> .zip</a>
+                                @else
+                                    <span class="text-xs text-ink-500">not uploaded</span>
+                                @endif
+                            </div>
+                        @endforeach
+                    @endforeach
+                </div>
+            </div>
+        @endif
     </div>
     @endif
 </x-layouts.app>
