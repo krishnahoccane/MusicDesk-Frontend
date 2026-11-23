@@ -77,13 +77,17 @@
                             <div><div class="text-[11px] text-ink-500">{{ $label }}</div><div class="mt-0.5 text-sm text-ink-100">{{ $req[$k] ?? match ($k) { 'php' => 'PHP 8.2+ · Nginx or Apache', 'database' => 'MySQL 8 / PostgreSQL 15', default => 'Redis, cron, 2 GB RAM' } }}</div></div>
                         @endforeach
                     </div>
+                    @if ($latest['requires_php'] ?? null)
+                        <p class="mt-3 text-xs text-ink-500">Minimum PHP version: <span class="font-mono text-ink-300">{{ $latest['requires_php'] }}</span></p>
+                    @endif
                 </div>
             </div>
 
             {{-- Update instructions --}}
             <div class="card card-pad flex flex-col">
                 <h2 class="font-semibold text-white">Update an existing install</h2>
-                <p class="mt-1 text-sm text-ink-400">Upload the new files over your install, then run <b class="font-medium text-ink-200">Administration → System → Upgrade database</b> in {{ setting('branding.product_name') }}, or from the command line:</p>
+                <p class="mt-1 rounded-lg border border-volt-500/20 bg-volt-500/[0.06] p-3 text-sm text-ink-200">{{ setting('branding.product_name') }} can install updates itself under <b class="font-medium text-white">Administration → Updates</b>. Automatic updates are off until you switch them on, separately for {{ setting('branding.product_name') }} and each add-on. If your hosting does not let PHP write to the {{ setting('branding.product_name') }} folder, upload the new files by FTP; the database update then runs by itself.</p>
+                <p class="mt-3 text-sm text-ink-400">To update by hand, upload the new files over your install, then run <b class="font-medium text-ink-200">Administration → System → Upgrade database</b> in {{ setting('branding.product_name') }}, or from the command line:</p>
                 <div class="mt-4 space-y-2">
                     @foreach (['php artisan down', 'php artisan labeldesk:upgrade', 'php artisan up'] as $cmd)
                         <div class="group flex items-center gap-2 rounded-lg border hairline bg-ink-950 px-3 py-2">

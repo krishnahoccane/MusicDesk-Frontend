@@ -62,7 +62,7 @@ Refunding an order (`/admin/orders`) revokes the license if it was a new-license
 | `/admin/support` | Support tickets: needs reply / awaiting customer / resolved, priority, assignee, reply or internal note, attachments. Customers are emailed each public reply |
 | `/admin/customers` | Organisations with team, licenses, orders, invoices and revenue; edit billing details and internal notes |
 | `/admin/plans` | Plans, **licensed add-ons** (prices, included plans), services and coupons |
-| `/admin/releases` | Publish versions (of LabelDesk or of an add-on) with changelog, requirements and the private `.zip` package (SHA-256 recorded). Add-on packages are checked, and signed if needed, on upload |
+| `/admin/releases` | Publish versions (of LabelDesk or of an add-on) with changelog, requirements, **Minimum PHP** (and for add-ons Minimum LabelDesk) and the private `.zip` package (SHA-256 recorded). Packages are checked, and signed if needed, on upload; each release shows *Signed* and its number of over-the-air downloads |
 
 ## Scheduled jobs
 
@@ -143,6 +143,34 @@ Emails a one-time 6-digit code to the license owner: the organisation's owner ac
 
 Changing to a key from **another license**: the old license's add-on keys (`LDAD-…`) stop on that domain at their next hourly check-in with `addon_domain_not_licensed`, because add-ons run only on their main license's domains. The portal's Add-ons tab says so.
 
+### Over-the-air updates (LabelDesk 4.3.3+)
+
+LabelDesk installs updates of itself and of its add-ons under *Administration → Updates*. It calls `/updates/check` every 12 hours and when an administrator opens that page or clicks *Check again*. Manual downloads from the portal keep working (and are the way for offline activations).
+
+| Method | Path | Body | Success |
+|---|---|---|---|
+| POST | `/updates/check` | `{token, version, php_version, instance_id, addons: [{addon, slug, version, token}]}` | `200 {labeldesk, addons}` |
+| POST | `/updates/download` | `{token, product: "labeldesk", version, instance_id}` or `{token, product: "<add-on code>", version, addon_token, instance_id}` | `200` the ZIP (`application/zip`, `Content-Length`, attachment), streamed |
+
+`POST /updates/check` response:
+
+```json
+{
+  "labeldesk": { "version": "4.3.4", "released_at": "2026-12-10", "changelog": "### Added\n- …", "requires_php": "8.2",
+                 "size": 31457280, "sha256": "…", "downloadable": true, "reason": null },
+  "addons": { "bulk_upload": { "version": "1.1.0", "released_at": "…", "changelog": "…", "requires_labeldesk": "4.3.3",
+                               "size": 23000, "sha256": "…", "downloadable": false, "reason": "Your updates period for Bulk upload ended on 1 Dec 2026. Renew it to get this version." } }
+}
+```
+
+- `token` is verified like `/check-in` (expired tokens accepted; the activation must exist and be active). Errors as for `/check-in`.
+- `labeldesk` is the newest **published, stable** LabelDesk release whose version is greater than `version` (`version_compare`) and that has a **signed** package stored; `null` when there is none. `addons` has an entry per add-on in the request with such a newer release, keyed by add-on code (`{}` when none).
+- `downloadable` is `false`, with `reason` written for the administrator, when the license (for add-ons: the add-on key, or its main license) is suspended, revoked or expired, when the release came out after `support_until` (updates period ended), or above an admin version cap. Add-ons without a `token`, or whose token is for another add-on, license or domain, are not downloadable either. The release is still listed.
+- `changelog` is Markdown built from the release notes (`### Added` / `Improved` / `Fixed` / `Security`), at most 20,000 characters. `requires_php` / `requires_labeldesk` come from the release form; LabelDesk refuses to install when they aren't met. `size` / `sha256` describe the stored package.
+- Each check records, on the activation, the time and the version the install reported. The portal (*Licenses › Domains*) and the admin license page show it.
+
+`POST /updates/download`: same token checks and `downloadable` rules. Refusals: `updates_expired` (403), `license_suspended` / `license_revoked` / `license_expired` (403), `release_not_found` (404: unknown, unpublished or not signed). For an add-on, `addon_token` must be a valid token of that add-on (`addon_mismatch`, 409) on a domain of the main license in `token` (`addon_domain_not_licensed`, 409). At most 10 downloads per activation per hour (`rate_limited`, 429). Each download is logged (Admin › Releases count; license activity "Downloaded 4.3.4 over the air on …").
+
 ### `GET /public-key`
 
 ```json
@@ -172,6 +200,10 @@ Token claims: `iss`, `iat`, `exp`, `lic` (license id), `act` (activation id), `d
 | `invalid_code` | 422 | Wrong, expired, already used or voided (5 wrong tries) deactivation code |
 | `rate_limited` | 429 | More than 3 deactivation code requests for an activation in 15 minutes |
 | `no_owner_email` | 422 | The license's organisation has no email to send a deactivation code to |
+| `updates_expired` | 403 | `/updates/download`: the release came out after the updates period (or above the version cap) |
+| `release_not_found` | 404 | `/updates/download`: unknown, unpublished or unsigned version (or unknown product) |
+| `rate_limited` | 429 | Also: more than 10 over-the-air downloads for an activation in an hour |
+| `addon_mismatch` | 409 | Also: `/updates/download` for an add-on without that add-on's `addon_token` |
 
 ### `POST /report` (security webhook)
 
@@ -239,6 +271,25 @@ Releases of an add-on (*Product* on the release form) take the LabelDesk plugin 
 Customers holding a key for the add-on see its packages under Downloads › Add-on packages (latest first) and can download releases published within the key's updates period. `/account/addons` (the link LabelDesk shows administrators) opens that list.
 
 The signing key file is a secret: keep it out of git (the `storage/app/private` folder is ignored), never paste it into the admin, and back it up separately. Losing it means new add-on versions can only be signed after a LabelDesk release with a new public key.
+
+## LabelDesk release packages
+
+LabelDesk 4.3.3+ installs a LabelDesk update only if it is signed with the **plugin signing key** (the same Ed25519 key as add-on packages, kid `7491a41a211116b1`):
+
+```
+labeldesk-4.3.4/signature.json
+labeldesk-4.3.4/app/…, bootstrap/…, config/…, database/…, public/…, resources/…, routes/…, vendor/…
+```
+
+`signature.json` = `{"alg":"Ed25519","kid":"7491a41a211116b1","signed":"<base64 JSON>","signature":"<base64>"}`. The signed JSON is `{"product":"labeldesk","version":"4.3.4","files":{"<path>":"<sha256>",…}}` and lists **every** file in the folder except `signature.json` (paths relative to `labeldesk-4.3.4/`, `/` separators, sorted). The top folder must be `labeldesk-<version>`.
+
+On *Admin → Releases* (product LabelDesk):
+
+- **Signed build:** `php scripts/package-release.php --key=<plugin-signing.key>` in LabelDesk produces `build/labeldesk-<version>.zip`. Upload it as is; the signature and every hash are verified against `PLUGIN_PUBLIC_KEY`.
+- **Signed here:** upload an unsigned ZIP whose single folder is `labeldesk-<version>` (or with the files at the ZIP root). It is repackaged as `labeldesk-<version>/…`, signed with the key at `PLUGIN_SIGNING_KEY_PATH` and checked the way LabelDesk's `App\Services\Updates\CorePackage::open` does.
+- Refused: a `.env` file (`.env.example` is fine), `storage/logs`, backups (`backup/`, `backups/`, `.sql`, `.sql.gz`, `.sqlite`, `.bak`, `.dump`), links, unsafe names, fewer than 10 or more than 80,000 files, over 600 MB.
+
+Only releases marked *Signed* are offered over the air. Packages uploaded before this check existed show *Unsigned*: upload them again to offer them.
 
 ### Offline installs
 

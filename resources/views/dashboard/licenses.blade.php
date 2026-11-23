@@ -170,6 +170,7 @@
                             <div class="flex flex-wrap items-center justify-between gap-3 px-5 pt-5 sm:px-6">
                                 <div class="max-w-2xl space-y-1.5 text-sm text-ink-400">
                                     <p>Domains activate automatically the first time LabelDesk checks in with your key. Staging and dev domains are free.</p>
+                                    <p class="text-xs text-ink-500"><x-icon name="download" class="mr-1 inline size-3.5 text-volt-300"/>{{ setting('branding.product_name', 'LabelDesk') }} can install updates itself under Administration → Updates. Automatic updates are off until you switch them on, separately for {{ setting('branding.product_name', 'LabelDesk') }} and each add-on. If your hosting does not let PHP write to the {{ setting('branding.product_name', 'LabelDesk') }} folder, upload the new files by FTP; the database update then runs by itself.</p>
                                     <p class="text-xs text-ink-500"><x-icon name="shield" class="mr-1 inline size-3.5 text-amber-glow"/>Deactivating LabelDesk on a domain needs a code we email to this account’s owner. If you did not ask for it, someone with administrator access to that site did — check who has access.</p>
                                 </div>
                                 <button class="btn btn-primary btn-sm" @click="$dispatch('open-domain', { id: '{{ $l['id'] }}', base: base })" :disabled="!base"><x-icon name="plus" class="size-3.5"/> Add domain</button>
@@ -187,7 +188,8 @@
                                                     </div>
                                                 </td>
                                                 <td><span class="badge" :class="d.env === 'production' ? 'badge-volt' : 'badge-ink'" x-text="d.env"></span></td>
-                                                <td><span class="badge font-mono" :class="d.version === '{{ $latest }}' ? 'badge-mint' : 'badge-amber'" x-text="'v' + d.version"></span></td>
+                                                <td><span class="badge font-mono" :class="d.version === '{{ $latest }}' ? 'badge-mint' : 'badge-amber'" x-text="d.version === 'not installed' ? d.version : 'v' + d.version"></span>
+                                                    <div class="mt-1 text-[11px] text-ink-500" x-text="d.update_check ? 'Checked for updates ' + d.update_check : 'No update check yet'"></div></td>
                                                 <td class="font-mono text-xs text-ink-500"><span x-text="d.ip"></span> · PHP <span x-text="d.php"></span></td>
                                                 <td class="text-ink-400" x-text="d.last"></td>
                                                 <td class="text-right">

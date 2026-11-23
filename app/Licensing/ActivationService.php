@@ -361,7 +361,7 @@ class ActivationService
     }
 
     /** @return array{0: License, 1: LicenseActivation} */
-    private function fromAddonToken(string $token): array
+    public function fromAddonToken(string $token): array
     {
         $claims = $this->tokens->verify($token, allowExpired: true);
         if (($claims['typ'] ?? null) !== 'addon') {
@@ -470,7 +470,7 @@ class ActivationService
         return [$domain, $env];
     }
 
-    private function requireNotBlocked(string $domain): void
+    public function requireNotBlocked(string $domain): void
     {
         if (LicenseAlert::isBlocked($domain)) {
             throw new LicenseException('domain_blocked', 'This domain is blocked from using '.setting('branding.product_name', 'LabelDesk').'. Contact support.', 403, 'domain');
@@ -496,7 +496,7 @@ class ActivationService
     }
 
     /** @return array{0: License, 1: LicenseActivation} */
-    private function fromToken(string $token, bool $allowExpired): array
+    public function fromToken(string $token, bool $allowExpired): array
     {
         $claims = $this->tokens->verify($token, $allowExpired);
         if (($claims['typ'] ?? null) === 'addon') {

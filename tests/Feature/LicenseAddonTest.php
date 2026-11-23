@@ -195,7 +195,7 @@ class LicenseAddonTest extends TestCase
         $this->assertFalse($main->mayDownload($release), 'the main key can’t download add-on packages');
         $this->assertTrue($main->addonLicenses()->first()->mayDownload($release));
         $this->assertFalse($main->addonLicenses()->first()->mayDownload(Release::core()->where('version', '4.3.0')->first()));
-        $this->assertSame('4.3.2', Release::latestVersion(), 'add-on releases don’t change the LabelDesk version');
+        $this->assertSame('4.3.3', Release::latestVersion(), 'add-on releases don’t change the LabelDesk version');
 
         $this->actingAs($this->customer)->get(route('dashboard.downloads'))->assertOk()->assertSee('Add-on packages')->assertSee('DDEX delivery');
     }

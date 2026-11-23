@@ -54,7 +54,15 @@ class Demo
 
         return [
             [
-                'version' => '4.3.2', 'date' => 'Nov 23, 2026', 'tag' => 'Latest', 'requirements' => $req432,
+                'version' => '4.3.3', 'date' => 'Nov 23, 2026', 'tag' => 'Latest', 'requirements' => $req432, 'requires_php' => '8.2',
+                'notes' => [
+                    ['new', 'Administration → Updates: install LabelDesk and add-on updates over the air. Automatic updates are off until you switch them on, separately for LabelDesk and each add-on'],
+                    ['improved', 'If your hosting does not let PHP write to the LabelDesk folder, upload the new files by FTP; the database update then runs by itself'],
+                    ['improved', 'Add-on tables are created when the add-on is installed'],
+                ],
+            ],
+            [
+                'version' => '4.3.2', 'date' => 'Nov 23, 2026', 'tag' => null, 'requirements' => $req432,
                 'notes' => [
                     ['new', 'Sign-up for artists and labels (off by default), approved by an administrator'],
                     ['new', 'Catalog → Labels: nestable sub-labels and imprints, assignable per release'],

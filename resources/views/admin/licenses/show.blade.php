@@ -112,7 +112,8 @@
                                     <td><span class="mr-2 inline-block size-2 rounded-full {{ $a->isOnline() ? 'bg-mint-400' : 'bg-ink-500' }}"></span><span class="font-medium text-white">{{ $a->domain }}</span></td>
                                     <td><span class="badge {{ $a->environment === 'production' ? 'badge-volt' : 'badge-ink' }}">{{ $a->environment }}</span></td>
                                     <td class="text-ink-300">{{ $a->status }}{{ $a->check_in_requested ? ' · check-in requested' : '' }}</td>
-                                    <td class="font-mono text-xs text-ink-300">{{ $a->version ?? '—' }}</td>
+                                    <td class="font-mono text-xs text-ink-300">{{ $a->version ?? '—' }}
+                                        <div class="font-sans text-[11px] text-ink-500">{{ $a->update_checked_at ? 'Update check '.local_time($a->update_checked_at)->diffForHumans().($a->update_check_version ? ' (v'.$a->update_check_version.')' : '') : 'No update check yet' }}</div></td>
                                     <td class="font-mono text-xs text-ink-500">{{ $a->ip ?? '—' }}{{ $a->php_version ? ' · PHP '.$a->php_version : '' }}</td>
                                     <td class="text-ink-400">{{ $a->last_check_in_at ? local_time($a->last_check_in_at)->diffForHumans() : 'never' }}</td>
                                     <td class="text-right">

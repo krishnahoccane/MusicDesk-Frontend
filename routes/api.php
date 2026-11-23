@@ -14,6 +14,9 @@ Route::prefix('license/v1')->middleware('throttle:license-server')->name('licens
     Route::post('/check-in', [LicenseServerController::class, 'checkIn'])->name('check-in');
     Route::post('/deactivate', [LicenseServerController::class, 'deactivate'])->name('deactivate');
     Route::post('/deactivate/code', [LicenseServerController::class, 'deactivationCode'])->name('deactivate.code');
+    // Over-the-air updates (LabelDesk 4.3.3+, Administration → Updates there).
+    Route::post('/updates/check', [LicenseServerController::class, 'updatesCheck'])->name('updates.check');
+    Route::post('/updates/download', [LicenseServerController::class, 'updatesDownload'])->name('updates.download');
     Route::get('/public-key', [LicenseServerController::class, 'publicKey'])->name('public-key');
 
     // LabelDesk add-ons (plugins), each activated with its own add-on key.

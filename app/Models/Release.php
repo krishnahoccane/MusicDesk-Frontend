@@ -12,7 +12,37 @@ class Release extends Model
 
     protected function casts(): array
     {
-        return ['released_at' => 'datetime', 'notes' => 'array', 'requirements' => 'array', 'published' => 'boolean', 'size_bytes' => 'integer'];
+        return ['released_at' => 'datetime', 'notes' => 'array', 'requirements' => 'array', 'published' => 'boolean', 'signed' => 'boolean', 'size_bytes' => 'integer'];
+    }
+
+    public function downloads(): \Illuminate\Database\Eloquent\Relations\HasMany
+    {
+        return $this->hasMany(ReleaseDownload::class);
+    }
+
+    /**
+     * The newest published stable release of a product (LabelDesk or an add-on) newer than
+     * $version, compared with version_compare, that LabelDesk can install over the air (a signed
+     * package is stored).
+     */
+    public static function newestAfter(?int $addonId, string $version): ?self
+    {
+        return static::newestFirst(static::query()->forProduct($addonId)->where('published', true)->where('channel', 'stable')
+            ->where('signed', true)->whereNotNull('file_path')->get()
+            ->filter(fn (self $r) => version_compare($r->version, $version, '>')))
+            ->sort(fn (self $a, self $b) => version_compare($b->version, $a->version))->first();
+    }
+
+    /** Changelog as Markdown for LabelDesk's Updates page (20,000 characters at most). */
+    public function changelogMarkdown(): string
+    {
+        $titles = ['new' => 'Added', 'improved' => 'Improved', 'fixed' => 'Fixed', 'security' => 'Security'];
+        $groups = collect($this->notes ?? [])->groupBy(fn ($n) => $n['kind'] ?? 'new');
+        $md = collect($titles)->filter(fn ($t, $k) => $groups->has($k))
+            ->map(fn ($t, $k) => "### {$t}\n".$groups[$k]->map(fn ($n) => '- '.strip_tags((string) ($n['text'] ?? '')))->implode("\n"))
+            ->implode("\n\n");
+
+        return mb_substr($md, 0, 20000);
     }
 
     public function addon(): \Illuminate\Database\Eloquent\Relations\BelongsTo

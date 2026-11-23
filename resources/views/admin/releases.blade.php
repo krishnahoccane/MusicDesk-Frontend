@@ -20,6 +20,12 @@
                     <span class="badge {{ $r->published ? 'badge-mint' : 'badge-ink' }}">{{ $r->published ? 'Published' : 'Hidden' }}</span>
                     <span class="text-xs text-ink-500">{{ $r->released_at->format('M d, Y') }}</span>
                     <span class="text-xs {{ $r->hasFile() ? 'text-ink-400' : 'text-amber-glow' }}">{{ $r->hasFile() ? number_format($r->size_bytes / 1048576, 1).' MB · sha256 '.substr($r->sha256, 0, 12).'…' : 'No package uploaded' }}</span>
+                    @if ($r->hasFile())
+                        <span class="badge {{ $r->signed ? 'badge-mint' : 'badge-amber' }}" title="{{ $r->signed ? 'LabelDesk can install this package over the air' : 'Not signed: upload it again to offer it over the air' }}">{{ $r->signed ? 'Signed' : 'Unsigned' }}</span>
+                    @endif
+                    @if ($r->requires_php)<span class="text-xs text-ink-500">PHP {{ $r->requires_php }}+</span>@endif
+                    @if ($r->requires_labeldesk)<span class="text-xs text-ink-500">LabelDesk {{ $r->requires_labeldesk }}+</span>@endif
+                    <span class="text-xs text-ink-400" title="Downloads by LabelDesk installs (Administration → Updates)"><x-icon name="download" class="inline size-3"/> {{ number_format($r->ota_downloads_count) }} over the air</span>
                     <button type="button" class="btn btn-outline btn-sm ml-auto" @click="open = !open" x-text="open ? 'Close' : 'Edit'"></button>
                 </div>
                 <div x-show="open" x-collapse x-cloak class="border-t hairline">

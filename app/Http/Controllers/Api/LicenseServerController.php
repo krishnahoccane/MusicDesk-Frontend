@@ -8,11 +8,14 @@ use App\Licensing\LicenseException;
 use App\Licensing\LicenseService;
 use App\Licensing\LicenseToken;
 use App\Licensing\SecurityAlerts;
+use App\Licensing\UpdateService;
 use App\Models\License;
 use App\Models\LicenseAlert;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\ValidationException;
+use Symfony\Component\HttpFoundation\Response;
 
 /**
  * License server for LabelDesk installs — /api/license/v1 (docs/licensing.md).
@@ -26,7 +29,7 @@ class LicenseServerController extends Controller
         'license_expired', 'activation_not_found', 'activation_deactivated',
     ];
 
-    public function __construct(private ActivationService $activations, private LicenseToken $tokens, private SecurityAlerts $alerts, private LicenseService $licenses) {}
+    public function __construct(private ActivationService $activations, private LicenseToken $tokens, private SecurityAlerts $alerts, private LicenseService $licenses, private UpdateService $updates) {}
 
     public function activate(Request $request): JsonResponse
     {
@@ -75,6 +78,43 @@ class LicenseServerController extends Controller
 
             return response()->json($this->activations->requestDeactivationCode($data['token'], $request->ip()));
         });
+    }
+
+    /** POST /updates/check: newer LabelDesk and add-on releases for over-the-air updates (LabelDesk 4.3.3+). */
+    public function updatesCheck(Request $request): JsonResponse
+    {
+        return $this->run(function () use ($request) {
+            $data = $request->validate([
+                'token' => ['required', 'string', 'max:4000'],
+                'version' => ['required', 'string', 'max:20', 'regex:/^\d+\.\d+\.\d+/'],
+                'php_version' => ['nullable', 'string', 'max:20'],
+                'instance_id' => ['nullable', 'string', 'max:100'],
+                'addons' => ['nullable', 'array', 'max:50'],
+                'addons.*.addon' => ['required', 'string', 'max:40'],
+                'addons.*.slug' => ['nullable', 'string', 'max:60'],
+                'addons.*.version' => ['nullable', 'string', 'max:20'],
+                'addons.*.token' => ['nullable', 'string', 'max:4000'],
+            ]);
+
+            return response()->json($this->updates->check($data['token'], $data, $request->ip()));
+        }, fn (LicenseException $e) => $this->alertRefusal($e, $request, ...$this->tokenHint((string) $request->input('token'))));
+    }
+
+    /** POST /updates/download: the release ZIP, streamed (LabelDesk compares it with the sha256 from /updates/check). */
+    public function updatesDownload(Request $request): Response
+    {
+        return $this->run(function () use ($request) {
+            $data = $request->validate([
+                'token' => ['required', 'string', 'max:4000'],
+                'product' => ['required', 'string', 'max:40', 'regex:/^[a-z0-9_]{2,40}$/'],
+                'version' => ['required', 'string', 'max:20'],
+                'addon_token' => ['nullable', 'string', 'max:4000'],
+                'instance_id' => ['nullable', 'string', 'max:100'],
+            ]);
+            $release = $this->updates->download($data['token'], $data, $request->ip());
+
+            return Storage::disk('local')->download($release->file_path, $release->fileName(), ['Content-Type' => 'application/zip']);
+        }, fn (LicenseException $e) => $this->alertRefusal($e, $request, ...$this->tokenHint((string) $request->input('token'))));
     }
 
     /** POST /api/license/v1/addons/activate: activate a LabelDesk add-on (plugin) with its own key. */
@@ -173,7 +213,7 @@ class LicenseServerController extends Controller
             ->header('Cache-Control', 'public, max-age=3600');
     }
 
-    private function run(callable $fn, ?callable $onRefused = null): JsonResponse
+    private function run(callable $fn, ?callable $onRefused = null): Response
     {
         try {
             return $fn();

@@ -51,6 +51,7 @@ class LicenseEvent extends Model
             },
             'addon_added' => 'Add-on added: '.($this->details['addon'] ?? '').(! empty($this->details['included']) ? ' (included with the plan)' : '').(isset($this->details['number']) ? ', key '.$this->details['number'] : ''),
             'now_included' => 'Add-on now included with the '.ucfirst($this->details['plan'] ?? '').' plan',
+            'release_downloaded' => 'Downloaded '.($this->details['version'] ?? '').' '.(($this->details['channel'] ?? '') === 'ota' ? 'over the air' : 'from the portal').(isset($this->details['domain']) ? ' on '.$this->details['domain'] : ''),
             'deactivation_code_sent' => 'Deactivation code sent for '.($this->details['domain'] ?? '').(isset($this->details['sent_to']) ? ' to '.$this->details['sent_to'] : ''),
             'domain_activated' => 'Install activated on '.($this->details['domain'] ?? ''),
             'check_in_requested' => 'Check-in requested: '.($this->details['domain'] ?? ''),

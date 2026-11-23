@@ -218,6 +218,6 @@ class DeactivationCodeTest extends TestCase
         $this->assertTrue($r->published);
         $this->assertStringContainsString('MariaDB 10.6', $r->requirements['database']);
         $this->assertStringContainsString('Upgrade database', $r->requirements['extras']);
-        $this->assertSame('4.3.2', Release::latestVersion());
+        $this->assertSame('4.3.3', Release::latestVersion());
     }
 }

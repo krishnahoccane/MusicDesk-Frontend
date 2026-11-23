@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Licensing\CorePackager;
 use App\Licensing\PluginPackager;
 use App\Models\LicenseAddon;
 use App\Models\Release;
@@ -18,19 +19,21 @@ use RuntimeException;
 
 /**
  * Releases of LabelDesk or of a licensed add-on: version, changelog, package file (kept private;
- * customers download through the portal). Add-on packages must be LabelDesk plugin ZIPs: already
- * signed (scripts/build-plugin.php) or signed here on upload with the plugin signing key.
+ * customers download through the portal, LabelDesk 4.3.3+ over the air). Packages are signed with the
+ * plugin signing key: add-ons as LabelDesk plugin ZIPs (scripts/build-plugin.php), LabelDesk itself as
+ * labeldesk-<version>/ with signature.json (scripts/package-release.php --key=…). Unsigned uploads are
+ * signed here when the key is installed.
  */
 class ReleaseAdminController extends Controller
 {
-    public function __construct(private PluginPackager $packager) {}
+    public function __construct(private PluginPackager $packager, private CorePackager $corePackager) {}
 
     public function index(Request $request): View
     {
         $product = $request->query('product');
 
         return view('admin.releases', [
-            'releases' => Release::with('addon')
+            'releases' => Release::with('addon')->withCount(['downloads as ota_downloads_count' => fn ($q) => $q->where('channel', 'ota')])
                 ->when($product === 'core', fn ($q) => $q->whereNull('addon_id'))
                 ->when(is_numeric($product), fn ($q) => $q->where('addon_id', (int) $product))
                 ->get()->pipe(fn ($c) => Release::newestFirst($c)),
@@ -43,6 +46,7 @@ class ReleaseAdminController extends Controller
     {
         $data = $this->validated($request, null);
         $package = $this->preparePackage($request, $data, null);
+        $data = $this->withPackageRequirements($data, $package);
         $release = Release::create($data);
         $this->storeFile($request, $release, $package);
 
@@ -53,6 +57,7 @@ class ReleaseAdminController extends Controller
     {
         $data = $this->validated($request, $release);
         $package = $this->preparePackage($request, $data, $release);
+        $data = $this->withPackageRequirements($data, $package);
         $release->update($data);
         $this->storeFile($request, $release, $package);
 
@@ -83,8 +88,10 @@ class ReleaseAdminController extends Controller
             'req_php' => ['nullable', 'string', 'max:120'],
             'req_database' => ['nullable', 'string', 'max:120'],
             'req_extras' => ['nullable', 'string', 'max:120'],
+            'requires_php' => ['nullable', 'regex:/^\d+\.\d+(\.\d+)?$/', 'max:20'],
+            'requires_labeldesk' => ['nullable', 'regex:/^\d+\.\d+\.\d+$/', 'max:20'],
             'package' => ['nullable', 'file', 'mimes:zip', 'max:512000'],
-        ], ['version.regex' => 'Use a version like 4.3.0 (optionally 4.3.0-beta.1).']);
+        ], ['version.regex' => 'Use a version like 4.3.0 (optionally 4.3.0-beta.1).', 'requires_php.regex' => 'Use a PHP version like 8.2.', 'requires_labeldesk.regex' => 'Use a version like 4.3.3.']);
 
         return [
             'addon_id' => $addonId,
@@ -93,6 +100,8 @@ class ReleaseAdminController extends Controller
             'released_at' => Carbon::parse($data['released_at'])->startOfDay(),
             'notes' => self::parseNotes($data['notes'] ?? ''),
             'requirements' => array_filter(['php' => $data['req_php'] ?? null, 'database' => $data['req_database'] ?? null, 'extras' => $data['req_extras'] ?? null]),
+            'requires_php' => $data['requires_php'] ?? null,
+            'requires_labeldesk' => $addonId ? ($data['requires_labeldesk'] ?? null) : null,
             'published' => $request->boolean('published'),
         ];
     }
@@ -122,30 +131,41 @@ class ReleaseAdminController extends Controller
     }
 
     /**
-     * Add-on releases: check the uploaded plugin ZIP (add-on code and version must match plugin.json)
-     * and sign it if it isn't signed yet.
+     * Check the uploaded ZIP and sign it if it isn't signed yet. Add-ons: plugin.json must name the
+     * add-on and version. LabelDesk: the top folder must be labeldesk-<version> (or no top folder),
+     * with no .env, logs, backups or links.
      *
-     * @return array{path: string, manifest: array<string, mixed>, signed_here: bool}|null
+     * @return array{path: string, manifest?: array<string, mixed>, signed_here: bool}|null
      */
     private function preparePackage(Request $request, array $data, ?Release $release): ?array
     {
         $file = $request->file('package');
-        if (! $data['addon_id']) {
-            return null;
-        }
         if (! $file) {
             if ($release?->file_path && ($release->version !== $data['version'] || (int) $release->addon_id !== (int) $data['addon_id'])) {
-                throw ValidationException::withMessages(['package' => 'Upload the plugin ZIP for this version: the package must match the add-on and version.']);
+                throw ValidationException::withMessages(['package' => 'Upload the package for this version: a signed package must match the product and version.']);
             }
 
             return null;
         }
 
         try {
-            return $this->packager->prepare($file->getRealPath(), (string) LicenseAddon::findOrFail($data['addon_id'])->code, $data['version']);
+            return $data['addon_id']
+                ? $this->packager->prepare($file->getRealPath(), (string) LicenseAddon::findOrFail($data['addon_id'])->code, $data['version'])
+                : $this->corePackager->prepare($file->getRealPath(), $data['version']);
         } catch (RuntimeException $e) {
             throw ValidationException::withMessages(['package' => $e->getMessage()]);
         }
+    }
+
+    /** Add-ons: minimum LabelDesk from plugin.json "requires" when the form leaves it empty. */
+    private function withPackageRequirements(array $data, ?array $package): array
+    {
+        $requires = $package['manifest']['requires'] ?? null;
+        if ($data['addon_id'] && ! $data['requires_labeldesk'] && is_string($requires) && preg_match('/\d+\.\d+\.\d+/', $requires, $m)) {
+            $data['requires_labeldesk'] = $m[0];
+        }
+
+        return $data;
     }
 
     private function storeFile(Request $request, Release $release, ?array $package = null): void
@@ -163,6 +183,9 @@ class ReleaseAdminController extends Controller
         } else {
             $path = $file->storeAs('releases', $name, 'local');
         }
-        $release->update(['file_path' => $path, 'size_bytes' => Storage::disk('local')->size($path), 'sha256' => hash_file('sha256', Storage::disk('local')->path($path))]);
+        $release->update([
+            'file_path' => $path, 'size_bytes' => Storage::disk('local')->size($path), 'sha256' => hash_file('sha256', Storage::disk('local')->path($path)),
+            'signed' => $package !== null,   // verified (or signed) by the packager: installable over the air
+        ]);
     }
 }

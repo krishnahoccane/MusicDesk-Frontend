@@ -229,6 +229,36 @@ class License extends Model
         return $max === null || version_compare($version, $max, '<=');
     }
 
+    /**
+     * Why this license may not install $release over the air (LabelDesk shows it to the
+     * administrator as is), or null when it may: the license must be usable and not expired,
+     * and the release must fall within its updates period and version cap.
+     */
+    public function updateRefusal(Release $release): ?string
+    {
+        $product = $this->isAddon() ? ($this->addon?->name ?? 'this add-on') : setting('branding.product_name', 'LabelDesk');
+        $status = $this->displayStatus();
+        if (! $this->allowsUse() || $status === 'expired') {
+            if ($this->isAddon() && $this->parent && ! $this->parent->allowsUse()) {
+                return "Your main license {$this->parent->number} is {$this->parent->displayStatus()}, so {$product} can’t be updated. Contact support.";
+            }
+
+            return match ($status) {
+                'suspended' => "Your license {$this->number} is suspended".($this->status_reason ? " ({$this->status_reason})" : '').'. Contact support to get updates.',
+                'revoked' => "Your license {$this->number} was revoked. Updates are not available.",
+                default => "Your license {$this->number} for {$product} has expired. Renew it to get this version.",
+            };
+        }
+        if ($this->support_until && $release->released_at->gt($this->support_until)) {
+            return "Your updates period for {$product} ended on ".local_time($this->support_until)->format('j M Y').'. Renew it to get this version.';
+        }
+        if ($this->max_version && version_compare($release->version, $this->max_version, '>')) {
+            return "Your license is limited to {$product} {$this->max_version}. Contact support to get this version.";
+        }
+
+        return null;
+    }
+
     public function mayDownload(Release $release): bool
     {
         return (int) $release->addon_id === (int) $this->addon_id && $this->allowsUse()

@@ -112,6 +112,7 @@ class LicensePresenter
                 'version' => $a->version ?? 'not installed',
                 'php' => $a->php_version ?? '—',
                 'last' => $a->last_check_in_at ? local_time($a->last_check_in_at)->diffForHumans() : 'never',
+                'update_check' => $a->update_checked_at ? local_time($a->update_checked_at)->diffForHumans() : null,
                 'online' => $a->isOnline(),
             ])->values()->all(),
         ];

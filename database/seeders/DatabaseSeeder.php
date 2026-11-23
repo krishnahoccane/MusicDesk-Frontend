@@ -107,6 +107,7 @@ class DatabaseSeeder extends Seeder
                 'released_at' => Carbon::parse($r['date'], 'UTC'),
                 'notes' => array_map(fn ($n) => ['kind' => $n[0], 'text' => $n[1]], $r['notes']),
                 'requirements' => $r['requirements'] ?? ['php' => 'PHP 8.2+ · Nginx or Apache', 'database' => 'MySQL 8 / PostgreSQL 15', 'extras' => 'Redis, cron, 2 GB RAM'],
+                'requires_php' => $r['requires_php'] ?? null,
                 'published' => true,
             ]);
         }

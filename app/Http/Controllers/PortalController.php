@@ -75,6 +75,7 @@ class PortalController extends Controller
                 'size' => $r->size_bytes,
                 'sha256' => $r->sha256,
                 'requirements' => $r->requirements ?? [],
+                'requires_php' => $r->requires_php,
                 'has_file' => $r->hasFile(),
                 'released_at' => $r->released_at,
             ])->all(),
@@ -96,6 +97,8 @@ class PortalController extends Controller
         if (! $release->hasFile()) {
             return back()->with(['toast' => "The {$release->version} package isn’t uploaded yet. Please contact support.", 'toast_tone' => 'danger']);
         }
+
+        \App\Models\ReleaseDownload::create(['release_id' => $release->id, 'license_id' => $license->id, 'channel' => \App\Models\ReleaseDownload::PORTAL, 'ip' => $request->ip()]);
 
         return Storage::disk('local')->download($release->file_path, $release->fileName());
     }
