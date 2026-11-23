@@ -31,7 +31,8 @@ class CorePackager
     private const FORBIDDEN = [
         '#(^|/)\.env(\.(?!example$)[^/]+)?$#' => 'a .env file',
         '#^storage/logs/(?!\.gitignore$).+#' => 'log files (storage/logs)',
-        '#(^|/)backups?/(?!\.gitignore$).+#i' => 'backups',
+        // Backups live under storage/ only; LabelDesk's own code has Backup/Backups folders (app/Livewire/Backups, …).
+        '#^storage/(.+/)?backups?/(?!\.gitignore$).+#i' => 'backups',
         '#\.(sql|sql\.gz|sqlite|bak|dump)$#i' => 'a database dump or backup file',
     ];
 

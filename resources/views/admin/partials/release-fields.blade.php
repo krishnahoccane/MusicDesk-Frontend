@@ -10,8 +10,13 @@
     <div><label class="label" for="ver_{{ $k }}">Version</label><input id="ver_{{ $k }}" name="version" value="{{ $r?->version }}" placeholder="4.3.0" class="input font-mono" required></div>
     <div><label class="label" for="ch_{{ $k }}">Channel</label><select id="ch_{{ $k }}" name="channel" class="input"><option value="stable">Stable</option><option value="beta" @selected($r?->channel === 'beta')>Beta</option></select></div>
     <div><label class="label" for="date_{{ $k }}">Release date</label><input id="date_{{ $k }}" type="date" name="released_at" value="{{ ($r?->released_at ?? now())->format('Y-m-d') }}" class="input" required></div>
-    <div class="sm:col-span-3"><label class="label" for="notes_{{ $k }}">Changelog <span class="text-ink-500">(one per line: “new: …”, “improved: …”, “fixed: …”, “security: …”)</span></label>
-        <textarea id="notes_{{ $k }}" name="notes" rows="5" class="input font-mono text-[13px]" placeholder="new: Multi-currency royalty statements&#10;fixed: CSV import ignored trailing whitespace">{{ \App\Http\Controllers\Admin\ReleaseAdminController::notesText($r?->notes) }}</textarea></div>
+    <div class="sm:col-span-3" x-data="{ count: 0, lines: 0, measure(v) { this.count = v.length; this.lines = v.split('\n').filter(l => l.trim()).length } }" x-init="measure($refs.notes.value)">
+        <label class="label" for="notes_{{ $k }}">Changelog <span class="text-ink-500">(one per line: “new: …”, “improved: …”, “fixed: …”, “security: …”)</span></label>
+        <textarea id="notes_{{ $k }}" x-ref="notes" name="notes" rows="8" class="input font-mono text-[13px]" @input="measure($event.target.value)" placeholder="new: Multi-currency royalty statements&#10;fixed: CSV import ignored trailing whitespace">{{ \App\Http\Controllers\Admin\ReleaseAdminController::notesText($r?->notes) }}</textarea>
+        <div class="mt-1 flex flex-wrap justify-between gap-2 text-[11px] text-ink-500">
+            <span>Leave empty to take it from the <span class="font-mono">CHANGELOG.md</span> in the package (the section for this version) when you save.</span>
+            <span class="font-mono tabular-nums" x-text="count.toLocaleString() + ' characters · ' + lines + (lines === 1 ? ' entry' : ' entries')"></span>
+        </div></div>
     <div><label class="label" for="php_{{ $k }}">Server requirement</label><input id="php_{{ $k }}" name="req_php" value="{{ $req['php'] ?? '' }}" placeholder="PHP 8.2+ · Nginx or Apache" class="input text-sm"></div>
     <div><label class="label" for="db_{{ $k }}">Database</label><input id="db_{{ $k }}" name="req_database" value="{{ $req['database'] ?? '' }}" placeholder="MySQL 8 / PostgreSQL 15" class="input text-sm"></div>
     <div><label class="label" for="ex_{{ $k }}">Extras</label><input id="ex_{{ $k }}" name="req_extras" value="{{ $req['extras'] ?? '' }}" placeholder="Redis, cron, 2 GB RAM" class="input text-sm"></div>

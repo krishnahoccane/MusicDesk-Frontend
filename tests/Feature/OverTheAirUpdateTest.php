@@ -125,7 +125,7 @@ class OverTheAirUpdateTest extends TestCase
 
     public function test_unsigned_labeldesk_zip_is_signed_on_upload(): void
     {
-        $this->uploadCore($this->coreZip('4.3.4'), '4.3.4', ['requires_php' => '8.2'])->assertSessionHasNoErrors()->assertSessionHas('toast', 'Version 4.3.4 saved (package signed)');
+        $this->uploadCore($this->coreZip('4.3.4'), '4.3.4', ['requires_php' => '8.2'])->assertSessionHasNoErrors()->assertSessionHas('toast', 'Version 4.3.4 saved (package signed) · the package has no CHANGELOG.md, add the changelog by hand');
 
         $release = Release::core()->where('version', '4.3.4')->firstOrFail();
         $this->assertTrue($release->signed);
@@ -150,7 +150,7 @@ class OverTheAirUpdateTest extends TestCase
     public function test_signed_build_is_stored_as_is_and_bad_packages_are_refused(): void
     {
         $signed = $this->coreZip('4.3.4', 'labeldesk-4.3.4', $this->secret);
-        $this->uploadCore($signed, '4.3.4')->assertSessionHasNoErrors()->assertSessionHas('toast', 'Version 4.3.4 saved');
+        $this->uploadCore($signed, '4.3.4')->assertSessionHasNoErrors()->assertSessionHas('toast', 'Version 4.3.4 saved · the package has no CHANGELOG.md, add the changelog by hand');
         $this->assertSame(hash_file('sha256', $signed), Release::core()->where('version', '4.3.4')->value('sha256'));
 
         $other = sodium_crypto_sign_secretkey(sodium_crypto_sign_keypair());
@@ -160,10 +160,70 @@ class OverTheAirUpdateTest extends TestCase
         $this->uploadCore($this->coreZip('4.3.5', null, null, ['.env' => 'APP_KEY=secret']), '4.3.5')->assertSessionHasErrors('package');
         $this->uploadCore($this->coreZip('4.3.5', null, null, ['storage/logs/laravel.log' => 'log']), '4.3.5')->assertSessionHasErrors('package');
         $this->uploadCore($this->coreZip('4.3.5', null, null, ['storage/app/private/backups/db.sql.gz' => 'x']), '4.3.5')->assertSessionHasErrors('package');
+        $this->uploadCore($this->coreZip('4.3.5', null, null, ['storage/app/private/backups/labeldesk-backup-2026-11-01.zip' => 'x']), '4.3.5')
+            ->assertSessionHasErrors(['package' => 'The package contains backups (storage/app/private/backups/labeldesk-backup-2026-11-01.zip). Build it again without it.']);
+        $this->uploadCore($this->coreZip('4.3.5', null, null, ['database/database.sqlite' => 'x']), '4.3.5')->assertSessionHasErrors('package');
+
+        // LabelDesk's own backup feature code is not a backup.
+        $this->uploadCore($this->coreZip('4.3.7', 'labeldesk-4.3.7', $this->secret, [
+            'app/Livewire/Backups/Index.php' => '<?php', 'app/Services/Backup/BackupService.php' => '<?php',
+            'resources/views/livewire/backups/index.blade.php' => 'view',
+        ]), '4.3.7')->assertSessionHasNoErrors();
 
         unlink(config('plugins.signing_key_path'));
         $this->uploadCore($this->coreZip('4.3.5'), '4.3.5')->assertSessionHasErrors('package');
         $this->assertFalse(Release::core()->where('version', '4.3.5')->exists());
+    }
+
+    public function test_changelog_is_read_from_the_package_and_has_no_length_limit(): void
+    {
+        $changelog = <<<'MD'
+        # Changelog
+
+        ## [4.3.5] — 2026-12-01
+
+        ### Added
+        - **Updates page**: install updates with one click and
+          a rollback if anything fails.
+        - New permission `updates.install`.
+
+        ### Changed
+        - The database updates itself after an FTP upload.
+
+        ### Fixed
+        - Add-on install button stayed greyed out.
+
+        ### MusicDesk.tech
+        - Internal note for the vendor.
+
+        ## [4.3.4] — 2026-11-30
+
+        ### Added
+        - Older entry.
+        MD;
+
+        // Empty changelog: taken from CHANGELOG.md in the uploaded package.
+        $this->uploadCore($this->coreZip('4.3.5', null, null, ['CHANGELOG.md' => $changelog]), '4.3.5', ['notes' => ''])
+            ->assertSessionHasNoErrors()->assertSessionHas('toast', 'Version 4.3.5 saved (package signed) · 4 changelog entries read from CHANGELOG.md');
+        $this->assertSame([
+            ['kind' => 'new', 'text' => 'Updates page: install updates with one click and a rollback if anything fails.'],
+            ['kind' => 'new', 'text' => 'New permission updates.install.'],
+            ['kind' => 'improved', 'text' => 'The database updates itself after an FTP upload.'],
+            ['kind' => 'fixed', 'text' => 'Add-on install button stayed greyed out.'],
+        ], Release::core()->where('version', '4.3.5')->value('notes'));
+
+        // A changelog typed in the form wins, and there is no length limit.
+        $long = collect(range(1, 400))->map(fn ($i) => "fixed: Entry {$i} ".str_repeat('x', 40))->implode("\n");
+        $this->assertGreaterThan(20000, strlen($long));
+        $this->uploadCore($this->coreZip('4.3.6', null, null, ['CHANGELOG.md' => $changelog]), '4.3.6', ['notes' => $long])
+            ->assertSessionHasNoErrors()->assertSessionHas('toast', 'Version 4.3.6 saved (package signed)');
+        $this->assertCount(400, Release::core()->where('version', '4.3.6')->value('notes'));
+
+        // No section for the version: the admin is told.
+        $this->uploadCore($this->coreZip('4.3.8', null, null, ['CHANGELOG.md' => $changelog]), '4.3.8')
+            ->assertSessionHas('toast', 'Version 4.3.8 saved (package signed) · no 4.3.8 section found in the package’s CHANGELOG.md, add the changelog by hand');
+
+        $this->actingAs($this->admin)->get(route('admin.releases'))->assertOk()->assertSee('characters ·', false)->assertSee('Leave empty to take it from the');
     }
 
     // ------------------------------------------------------------ /updates/check

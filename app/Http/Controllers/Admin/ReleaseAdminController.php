@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Licensing\CorePackager;
 use App\Licensing\PluginPackager;
+use App\Licensing\ReleaseChangelog;
 use App\Models\LicenseAddon;
 use App\Models\Release;
 use Illuminate\Http\File;
@@ -50,7 +51,7 @@ class ReleaseAdminController extends Controller
         $release = Release::create($data);
         $this->storeFile($request, $release, $package);
 
-        return back()->with('toast', "Version {$release->version} saved".($package['signed_here'] ?? false ? ' (package signed)' : ''));
+        return back()->with('toast', $this->savedMessage($release, $package, $this->changelogFromPackage($release)));
     }
 
     public function update(Request $request, Release $release): RedirectResponse
@@ -61,7 +62,7 @@ class ReleaseAdminController extends Controller
         $release->update($data);
         $this->storeFile($request, $release, $package);
 
-        return back()->with('toast', "Version {$release->version} saved".($package['signed_here'] ?? false ? ' (package signed)' : ''));
+        return back()->with('toast', $this->savedMessage($release, $package, $this->changelogFromPackage($release)));
     }
 
     public function destroy(Release $release): RedirectResponse
@@ -84,7 +85,7 @@ class ReleaseAdminController extends Controller
                 Rule::unique('releases', 'version')->ignore($release?->id)->where(fn ($q) => $addonId ? $q->where('addon_id', $addonId) : $q->whereNull('addon_id'))],
             'channel' => ['required', Rule::in(['stable', 'beta'])],
             'released_at' => ['required', 'date'],
-            'notes' => ['nullable', 'string', 'max:10000'],
+            'notes' => ['nullable', 'string'],   // no length limit
             'req_php' => ['nullable', 'string', 'max:120'],
             'req_database' => ['nullable', 'string', 'max:120'],
             'req_extras' => ['nullable', 'string', 'max:120'],
@@ -104,6 +105,39 @@ class ReleaseAdminController extends Controller
             'requires_labeldesk' => $addonId ? ($data['requires_labeldesk'] ?? null) : null,
             'published' => $request->boolean('published'),
         ];
+    }
+
+    /**
+     * An empty changelog is filled from the CHANGELOG.md in the stored package (the section for this
+     * version). Returns the number of notes read, -1 when the package has no CHANGELOG.md, null
+     * when nothing was tried.
+     */
+    private function changelogFromPackage(Release $release): ?int
+    {
+        if ($release->notes || ! $release->hasFile()) {
+            return null;
+        }
+        $notes = ReleaseChangelog::fromPackage(Storage::disk('local')->path($release->file_path), $release->version);
+        if ($notes === null) {
+            return -1;
+        }
+        if ($notes) {
+            $release->update(['notes' => $notes]);
+        }
+
+        return count($notes);
+    }
+
+    private function savedMessage(Release $release, ?array $package, ?int $changelog): string
+    {
+        return "Version {$release->version} saved"
+            .($package['signed_here'] ?? false ? ' (package signed)' : '')
+            .match (true) {
+                $changelog === null => '',
+                $changelog > 0 => " · {$changelog} changelog entries read from CHANGELOG.md",
+                $changelog < 0 => ' · the package has no CHANGELOG.md, add the changelog by hand',
+                default => " · no {$release->version} section found in the package’s CHANGELOG.md, add the changelog by hand",
+            };
     }
 
     /** One note per line: "new: …", "improved: …", "fixed: …", "security: …" (no prefix = new). */
