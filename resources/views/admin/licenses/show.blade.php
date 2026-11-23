@@ -162,8 +162,8 @@
                     @foreach ($events as $e)
                         <li class="relative">
                             <span class="absolute -left-[25px] top-1.5 size-2.5 rounded-full ring-4 ring-ink-900 {{ in_array($e->event, ['suspended', 'revoked'], true) ? 'bg-coral-400' : (in_array($e->event, ['key_revealed', 'check_in_requested'], true) ? 'bg-ink-500' : 'bg-volt-500') }}"></span>
-                            <div class="text-ink-100">{{ $e->label() }}@if (! empty($e->details['reason'])) <span class="text-ink-500">· {{ $e->details['reason'] }}</span>@endif</div>
-                            <div class="text-xs text-ink-500">{{ local_time($e->created_at)->format('M d, Y H:i') }} · {{ $e->actor }}</div>
+                            <div class="text-ink-100">{{ $e->label() }}@if (! empty($e->details['reason']) && $e->event !== 'domain_deactivated') <span class="text-ink-500">· {{ $e->details['reason'] }}</span>@endif</div>
+                            <div class="text-xs text-ink-500">{{ local_time($e->created_at)->format('M d, Y H:i') }} · {{ $e->actor }}@if (! empty($e->details['ip'])) · IP {{ $e->details['ip'] }}@endif</div>
                         </li>
                     @endforeach
                 </ol>

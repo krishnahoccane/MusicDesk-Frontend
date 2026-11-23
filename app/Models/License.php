@@ -216,12 +216,23 @@ class License extends Model
             return null;   // every version
         }
 
+        // Highest version number released before support ended, compared as versions (4.3.10 > 4.3.9), not text or dates.
         return Release::query()->forProduct($this->addon_id)->where('published', true)->where('released_at', '<=', $this->support_until)
-            ->orderByDesc('released_at')->value('version');
+            ->pluck('version')->reduce(fn (?string $max, string $v) => $max === null || version_compare($v, $max, '>') ? $v : $max);
+    }
+
+    /** Is this version within the license's version cap (if any)? */
+    public function allowsVersion(string $version): bool
+    {
+        $max = $this->maxVersion();
+
+        return $max === null || version_compare($version, $max, '<=');
     }
 
     public function mayDownload(Release $release): bool
     {
-        return (int) $release->addon_id === (int) $this->addon_id && $this->allowsUse() && ($this->support_until === null || $release->released_at->lte($this->support_until));
+        return (int) $release->addon_id === (int) $this->addon_id && $this->allowsUse()
+            && ($this->support_until === null || $release->released_at->lte($this->support_until))
+            && (! $this->max_version || version_compare($release->version, $this->max_version, '<='));
     }
 }

@@ -19,6 +19,8 @@ class LicenseActivation extends Model
 
     protected $guarded = ['id'];
 
+    protected $hidden = ['deactivation_code_hash'];
+
     protected static function booted(): void
     {
         static::creating(fn (LicenseActivation $a) => $a->uuid ??= (string) Str::uuid());
@@ -28,6 +30,8 @@ class LicenseActivation extends Model
     {
         return [
             'last_check_in_at' => 'datetime',
+            'last_activated_at' => 'datetime',
+            'deactivation_code_expires_at' => 'datetime',
             'activated_at' => 'datetime',
             'deactivated_at' => 'datetime',
             'check_in_requested' => 'boolean',

@@ -50,9 +50,33 @@ class Demo
 
     public static function releases(): array
     {
+        $req432 = ['php' => 'PHP 8.2+ (8.3 recommended) · Nginx or Apache', 'database' => 'MySQL 8 / MariaDB 10.6+', 'extras' => 'After uploading: Administration → System → Upgrade database (or php artisan labeldesk:upgrade)'];
+
         return [
             [
-                'version' => '4.3.0', 'date' => 'Nov 04, 2026', 'tag' => 'Latest',
+                'version' => '4.3.2', 'date' => 'Nov 23, 2026', 'tag' => 'Latest', 'requirements' => $req432,
+                'notes' => [
+                    ['new', 'Sign-up for artists and labels (off by default), approved by an administrator'],
+                    ['new', 'Catalog → Labels: nestable sub-labels and imprints, assignable per release'],
+                    ['security', 'Deactivating an installation needs a one-time code emailed to the license owner'],
+                    ['improved', 'Backups pause from 30 days before the license expires until it is renewed'],
+                    ['improved', 'Footer shows only the version; sidebar shows only your logo and label name'],
+                    ['fixed', 'Account menu opened behind the page content'],
+                    ['fixed', 'Deactivate dialog on Settings → License could not be used'],
+                    ['fixed', 'Messages for the sign-in page were not shown'],
+                ],
+            ],
+            [
+                'version' => '4.3.1', 'date' => 'Nov 23, 2026', 'tag' => null,
+                'notes' => [
+                    ['new', 'Change the license key on Settings → License or from the suspension page'],
+                    ['new', 'Administration → Add-ons: upload signed add-ons, each with its own LDAD- key'],
+                    ['improved', 'Bulk upload moved into the Bulk upload add-on'],
+                    ['new', 'No cron job needed for license checks and queued work'],
+                ],
+            ],
+            [
+                'version' => '4.3.0', 'date' => 'Nov 04, 2026', 'tag' => null,
                 'notes' => [
                     ['new', 'Multi-currency royalty statements with locked FX rates'],
                     ['new', 'DDEX ERN 4.3 delivery profiles'],

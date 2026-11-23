@@ -180,7 +180,7 @@ class LicenseAdminController extends Controller
             'domains_extra' => ['required', 'integer', 'min:0', 'max:500'],
             'expires_at' => ['nullable', 'date'],
             'support_until' => ['nullable', 'date'],
-            'max_version' => ['nullable', 'string', 'max:20'],
+            'max_version' => ['nullable', 'string', 'max:20', 'regex:/^\d+\.\d+\.\d+([.-][0-9A-Za-z.-]+)?$/'],
             'notes' => ['nullable', 'string', 'max:2000'],
         ]);
         $data['auto_renew'] = $request->boolean('auto_renew');

@@ -38,7 +38,16 @@ class Release extends Model
 
     public static function latest(): ?self
     {
-        return static::published()->core()->where('channel', 'stable')->first();
+        return static::newestFirst(static::published()->core()->where('channel', 'stable')->get())->first();
+    }
+
+    /**
+     * Newest first: by release date, then by version number compared as a version
+     * (4.3.10 > 4.3.9, and 4.3.2 > 4.3.1 when both shipped the same day).
+     */
+    public static function newestFirst(\Illuminate\Support\Collection $releases): \Illuminate\Support\Collection
+    {
+        return $releases->sort(fn (self $a, self $b) => ($b->released_at <=> $a->released_at) ?: version_compare($b->version, $a->version))->values();
     }
 
     public static function latestVersion(): string

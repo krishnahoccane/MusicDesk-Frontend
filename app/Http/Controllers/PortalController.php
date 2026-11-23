@@ -52,7 +52,7 @@ class PortalController extends Controller
 
     public function downloads(Request $request): View
     {
-        $releases = Release::published()->core()->get();
+        $releases = Release::newestFirst(Release::published()->core()->get());
 
         // Add-on packages, for each add-on key the organisation holds.
         $addonDownloads = License::query()->where('organisation_id', $request->user()->organisation_id)->whereNotNull('addon_id')

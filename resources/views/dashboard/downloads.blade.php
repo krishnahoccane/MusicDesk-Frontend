@@ -83,9 +83,9 @@
             {{-- Update instructions --}}
             <div class="card card-pad flex flex-col">
                 <h2 class="font-semibold text-white">Update an existing install</h2>
-                <p class="mt-1 text-sm text-ink-400">One click in your {{ setting('branding.product_name') }} admin panel (Settings → Updates), or from the command line:</p>
+                <p class="mt-1 text-sm text-ink-400">Upload the new files over your install, then run <b class="font-medium text-ink-200">Administration → System → Upgrade database</b> in {{ setting('branding.product_name') }}, or from the command line:</p>
                 <div class="mt-4 space-y-2">
-                    @foreach (['php artisan down', 'php artisan labeldesk:update --version='.$latest['version'], 'php artisan migrate --force', 'php artisan up'] as $cmd)
+                    @foreach (['php artisan down', 'php artisan labeldesk:upgrade', 'php artisan up'] as $cmd)
                         <div class="group flex items-center gap-2 rounded-lg border hairline bg-ink-950 px-3 py-2">
                             <span class="font-mono text-xs text-ink-500">$</span>
                             <code class="flex-1 truncate font-mono text-[12px] text-ink-200">{{ $cmd }}</code>

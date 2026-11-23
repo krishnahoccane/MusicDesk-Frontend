@@ -13,6 +13,7 @@ Route::prefix('license/v1')->middleware('throttle:license-server')->name('licens
     Route::post('/activate', [LicenseServerController::class, 'activate'])->name('activate');
     Route::post('/check-in', [LicenseServerController::class, 'checkIn'])->name('check-in');
     Route::post('/deactivate', [LicenseServerController::class, 'deactivate'])->name('deactivate');
+    Route::post('/deactivate/code', [LicenseServerController::class, 'deactivationCode'])->name('deactivate.code');
     Route::get('/public-key', [LicenseServerController::class, 'publicKey'])->name('public-key');
 
     // LabelDesk add-ons (plugins), each activated with its own add-on key.

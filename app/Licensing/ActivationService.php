@@ -3,9 +3,13 @@
 namespace App\Licensing;
 
 use App\Models\License;
+use App\Mail\DeactivationCodeMail;
 use App\Models\LicenseActivation;
 use App\Models\LicenseAlert;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\RateLimiter;
 
 /**
  * Domains and installs. Rules:
@@ -20,6 +24,18 @@ use Illuminate\Support\Facades\DB;
 class ActivationService
 {
     public const MAX_MOVES_PER_30_DAYS = 3;
+
+    /** Deactivation codes (LabelDesk 4.3.2+). */
+    public const CODE_TTL_SECONDS = 600;
+
+    public const CODE_REQUESTS_PER_15_MIN = 3;
+
+    public const CODE_MAX_ATTEMPTS = 5;
+
+    /** A transfer / key change releases the old activation without a code only this soon after the new /activate. */
+    public const HANDOVER_MINUTES = 10;
+
+    public const DEACTIVATION_REASONS = ['manual', 'transfer', 'key_change'];
 
     public function __construct(private LicenseService $licenses, private LicenseToken $tokens) {}
 
@@ -81,13 +97,13 @@ class ActivationService
         });
     }
 
-    public function deactivate(LicenseActivation $activation, string $actor): void
+    public function deactivate(LicenseActivation $activation, string $actor, array $details = []): void
     {
         if ($activation->status === LicenseActivation::DEACTIVATED) {
             return;
         }
-        $activation->update(['status' => LicenseActivation::DEACTIVATED, 'deactivated_at' => now()]);
-        $this->licenses->event($activation->license, 'domain_deactivated', ['domain' => $activation->domain], $actor);
+        $activation->update(['status' => LicenseActivation::DEACTIVATED, 'deactivated_at' => now(), 'deactivation_code_hash' => null, 'deactivation_code_expires_at' => null]);
+        $this->licenses->event($activation->license, 'domain_deactivated', ['domain' => $activation->domain] + $details, $actor);
         $this->cascadeDeactivate($activation->license, $activation->domain, $actor);
     }
 
@@ -136,7 +152,7 @@ class ActivationService
             $existing = $license->activations()->where('domain', $domain)->where('status', '!=', LicenseActivation::DEACTIVATED)->first();
 
             if (! $existing) {
-                [$domain, $env] = $this->checkNew($license, $domain, $install['environment'] ?? null);
+                [$domain, $env] = $this->checkNew($license, $domain, $install['environment'] ?? null, $install['instance_id'] ?? null);
                 $existing = $license->activations()->create(['domain' => $domain, 'environment' => $env, 'status' => LicenseActivation::PENDING]);
             }
 
@@ -144,6 +160,7 @@ class ActivationService
             $existing->fill([
                 'status' => LicenseActivation::ACTIVE,
                 'activated_at' => $existing->activated_at ?? now(),
+                'last_activated_at' => now(),
                 'instance_id' => isset($install['instance_id']) ? substr((string) $install['instance_id'], 0, 100) : $existing->instance_id,
             ])->save();
             $this->record($existing, $install, $ip);
@@ -168,10 +185,116 @@ class ActivationService
     }
 
     /** POST /api/license/v1/deactivate */
-    public function deactivateInstall(string $token): void
+    /**
+     * POST /api/license/v1/deactivate. reason manual (default) needs the emailed code;
+     * transfer / key_change don't, when the same installation (instance_id) has just activated
+     * another domain of this license (transfer) or another license key (key_change).
+     */
+    public function deactivateInstall(string $token, ?string $code = null, ?string $reason = null, ?string $ip = null): void
     {
-        [, $activation] = $this->fromToken($token, allowExpired: true);
-        $this->deactivate($activation, 'license server');
+        [$license, $activation] = $this->fromToken($token, allowExpired: true);
+        $reason = in_array($reason, self::DEACTIVATION_REASONS, true) ? $reason : 'manual';
+
+        if ($reason === 'manual' || ! $this->isHandover($license, $activation, $reason)) {
+            $this->verifyCode($activation, $code);
+        }
+
+        $this->deactivate($activation, 'license server', ['reason' => $reason, 'ip' => $ip]);
+    }
+
+    /** POST /api/license/v1/deactivate/code: email a one-time code to the license owner. */
+    public function requestDeactivationCode(string $token, ?string $ip): array
+    {
+        [$license, $activation] = $this->fromToken($token, allowExpired: true);
+        $key = 'deactivation-code:'.$activation->uuid;
+        if (RateLimiter::tooManyAttempts($key, self::CODE_REQUESTS_PER_15_MIN)) {
+            throw new LicenseException('rate_limited', 'Too many code requests. Try again in '.ceil(RateLimiter::availableIn($key) / 60).' minutes.', 429);
+        }
+        RateLimiter::hit($key, 15 * 60);
+
+        $to = self::ownerEmail($license);
+        if (! $to) {
+            throw new LicenseException('no_owner_email', 'This license has no owner email. Contact support.', 422);
+        }
+
+        $code = str_pad((string) random_int(0, 999999), 6, '0', STR_PAD_LEFT);
+        $activation->forceFill([   // a new request replaces the previous code
+            'deactivation_code_hash' => Hash::make($code),
+            'deactivation_code_expires_at' => now()->addSeconds(self::CODE_TTL_SECONDS),
+            'deactivation_code_attempts' => 0,
+        ])->save();
+
+        Mail::to($to)->send(new DeactivationCodeMail($license, $activation->domain, $code, intdiv(self::CODE_TTL_SECONDS, 60)));
+        $masked = self::maskEmail($to);
+        $this->licenses->event($license, 'deactivation_code_sent', ['domain' => $activation->domain, 'ip' => $ip, 'sent_to' => $masked], 'license server');
+
+        return ['sent' => true, 'sent_to' => $masked, 'expires_in' => self::CODE_TTL_SECONDS];
+    }
+
+    /** The account owner holding the license (falls back to the organisation's billing email). */
+    public static function ownerEmail(License $license): ?string
+    {
+        $org = $license->organisation;
+
+        return $org?->users()->where('role', 'owner')->orderBy('id')->value('email') ?: $org?->email;
+    }
+
+    /** k•••@a•••.com */
+    public static function maskEmail(string $email): string
+    {
+        [$local, $domain] = array_pad(explode('@', $email, 2), 2, '');
+        $parts = explode('.', $domain);
+        $tld = count($parts) > 1 ? array_pop($parts) : '';
+
+        return mb_substr($local, 0, 1).'•••@'.mb_substr(implode('.', $parts), 0, 1).'•••'.($tld !== '' ? '.'.$tld : '');
+    }
+
+    private function verifyCode(LicenseActivation $activation, ?string $code): void
+    {
+        $code = preg_replace('/\D/', '', (string) $code);
+        if ($code === '') {
+            throw new LicenseException('code_required', 'Enter the deactivation code we emailed to the license owner.', 422, 'code');
+        }
+
+        $valid = DB::transaction(function () use ($activation, $code) {
+            $a = LicenseActivation::query()->whereKey($activation->id)->lockForUpdate()->firstOrFail();
+            if (! $a->deactivation_code_hash || ! $a->deactivation_code_expires_at || $a->deactivation_code_expires_at->isPast()) {
+                return false;
+            }
+            if (Hash::check($code, $a->deactivation_code_hash)) {
+                $a->forceFill(['deactivation_code_hash' => null, 'deactivation_code_expires_at' => null, 'deactivation_code_attempts' => 0])->save();   // single use
+
+                return true;
+            }
+            $attempts = $a->deactivation_code_attempts + 1;
+            $a->forceFill($attempts >= self::CODE_MAX_ATTEMPTS
+                ? ['deactivation_code_hash' => null, 'deactivation_code_expires_at' => null, 'deactivation_code_attempts' => $attempts]   // void after 5 wrong tries
+                : ['deactivation_code_attempts' => $attempts])->save();
+
+            return false;
+        });
+
+        if (! $valid) {
+            throw new LicenseException('invalid_code', 'That code is wrong or has expired. Request a new one.', 422, 'code');
+        }
+    }
+
+    /** Did this installation just activate another domain of this license (transfer) or another key (key_change)? */
+    private function isHandover(License $license, LicenseActivation $activation, string $reason): bool
+    {
+        if (! $activation->instance_id) {
+            return false;
+        }
+
+        return LicenseActivation::query()
+            ->where('instance_id', $activation->instance_id)
+            ->whereKeyNot($activation->id)
+            ->where('status', LicenseActivation::ACTIVE)
+            ->where('last_activated_at', '>=', now()->subMinutes(self::HANDOVER_MINUTES))
+            ->when($reason === 'transfer',
+                fn ($q) => $q->where('license_id', $license->id)->where('domain', '!=', $activation->domain),
+                fn ($q) => $q->where('license_id', '!=', $license->id)->whereHas('license', fn ($l) => $l->whereNull('addon_id')))
+            ->exists();
     }
 
     // ------------------------------------------------------------ Add-on keys (LabelDesk plugins)
@@ -311,7 +434,7 @@ class ActivationService
     // ------------------------------------------------------------ helpers
 
     /** @return array{0: string, 1: string} normalised domain and environment */
-    private function checkNew(License $license, string $domain, ?string $environment): array
+    private function checkNew(License $license, string $domain, ?string $environment, ?string $instanceId = null): array
     {
         $domain = self::normalise($domain);
         if (! self::validDomain($domain)) {
@@ -326,6 +449,8 @@ class ActivationService
         // One license per product per domain (LabelDesk itself, or one add-on).
         $elsewhere = LicenseActivation::query()->where('domain', $domain)->where('status', '!=', LicenseActivation::DEACTIVATED)
             ->where('license_id', '!=', $license->id)
+            // Changing the license key: the same installation may hold the old key on this domain until it releases it.
+            ->when($instanceId, fn ($q) => $q->where(fn ($w) => $w->whereNull('instance_id')->orWhere('instance_id', '!=', $instanceId)))
             ->whereHas('license', fn ($l) => $license->addon_id ? $l->where('addon_id', $license->addon_id) : $l->whereNull('addon_id'))->exists();
         if ($elsewhere) {
             throw new LicenseException('domain_in_use', 'That domain is already active on another license.');

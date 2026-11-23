@@ -168,7 +168,10 @@
                         {{-- Domains --}}
                         <div x-show="tab === 'domains'">
                             <div class="flex flex-wrap items-center justify-between gap-3 px-5 pt-5 sm:px-6">
-                                <p class="text-sm text-ink-400">Domains activate automatically the first time LabelDesk checks in with your key. Staging and dev domains are free.</p>
+                                <div class="max-w-2xl space-y-1.5 text-sm text-ink-400">
+                                    <p>Domains activate automatically the first time LabelDesk checks in with your key. Staging and dev domains are free.</p>
+                                    <p class="text-xs text-ink-500"><x-icon name="shield" class="mr-1 inline size-3.5 text-amber-glow"/>Deactivating LabelDesk on a domain needs a code we email to this account’s owner. If you did not ask for it, someone with administrator access to that site did — check who has access.</p>
+                                </div>
                                 <button class="btn btn-primary btn-sm" @click="$dispatch('open-domain', { id: '{{ $l['id'] }}', base: base })" :disabled="!base"><x-icon name="plus" class="size-3.5"/> Add domain</button>
                             </div>
                             <div class="mt-4 overflow-x-auto">
@@ -207,6 +210,7 @@
 
                         {{-- Add-ons: each has its own key --}}
                         <div x-show="tab === 'addons'" x-cloak class="space-y-4 p-5 sm:p-6">
+                            <p class="text-sm text-ink-400">If you change {{ setting('branding.product_name', 'LabelDesk') }} on a domain to a key from a different license, these add-on keys stop working there at the next hourly check-in, because add-ons only run on their main license’s domains.</p>
                             <p class="text-sm text-ink-400">Each add-on has its own key. Enter it in {{ setting('branding.product_name', 'LabelDesk') }} under Settings › Add-ons on any domain of {{ $l['id'] }}; it activates on that domain automatically.</p>
                             @foreach ($l['addons'] ?? [] as $a)
                                 <div class="rounded-2xl border hairline bg-white/[0.02] p-4"
@@ -287,16 +291,14 @@
                             <div>
                                 <div class="eyebrow mb-3">History</div>
                                 <ol class="relative space-y-4 border-l border-white/[0.08] pl-5 text-sm">
-                                    @foreach ([
-                                        ['License purchased', $l['purchased'], '#22d9a0'],
-                                        ['First domain activated', $l['purchased'], '#7c5cff'],
-                                        ...($l['tier'] === 'Business' ? [['Extra domain added (+1)', 'Nov 14, 2026', '#ff3fd2'], ['distribution.lowtide.co updated to v4.3.0', 'Nov 06, 2026', '#5cc8ff']] : []),
-                                    ] as [$ev, $dt, $c])
+                                    @forelse ($l['activity'] ?? [] as $ev)
                                         <li class="relative">
-                                            <span class="absolute -left-[25px] top-1 size-2.5 rounded-full ring-4 ring-ink-950" style="background: {{ $c }}"></span>
-                                            <div class="text-ink-100">{{ $ev }}</div><div class="text-xs text-ink-500">{{ $dt }}</div>
+                                            <span class="absolute -left-[25px] top-1 size-2.5 rounded-full ring-4 ring-ink-950" style="background: {{ $ev['color'] }}"></span>
+                                            <div class="text-ink-100">{{ $ev['label'] }}</div><div class="text-xs text-ink-500">{{ $ev['meta'] }}</div>
                                         </li>
-                                    @endforeach
+                                    @empty
+                                        <li class="text-ink-500">No activity yet.</li>
+                                    @endforelse
                                 </ol>
                             </div>
                         </div>

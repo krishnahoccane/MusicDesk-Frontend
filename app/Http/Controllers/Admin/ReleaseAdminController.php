@@ -33,7 +33,7 @@ class ReleaseAdminController extends Controller
             'releases' => Release::with('addon')
                 ->when($product === 'core', fn ($q) => $q->whereNull('addon_id'))
                 ->when(is_numeric($product), fn ($q) => $q->where('addon_id', (int) $product))
-                ->orderByDesc('released_at')->get(),
+                ->get()->pipe(fn ($c) => Release::newestFirst($c)),
             'addons' => LicenseAddon::orderBy('sort')->orderBy('name')->get(),
             'product' => $product,
         ]);

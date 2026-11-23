@@ -91,8 +91,9 @@ class LicensingTest extends TestCase
         $this->actingAs($this->admin)->post(route('admin.licenses.status', $license), ['status' => 'active', 'reason' => 'Paid'])->assertRedirect();
         $this->postJson('/api/license/v1/check-in', ['token' => $token])->assertOk();
 
-        $this->postJson('/api/license/v1/deactivate', ['token' => $token])->assertNoContent();
-        $this->postJson('/api/license/v1/check-in', ['token' => $token])->assertForbidden()->assertJsonPath('error.code', 'activation_deactivated');
+        // 4.3.2+: a manual deactivation needs the emailed code (full flow in DeactivationCodeTest).
+        $this->postJson('/api/license/v1/deactivate', ['token' => $token])->assertStatus(422)->assertJsonPath('error.code', 'code_required');
+        $this->postJson('/api/license/v1/check-in', ['token' => $token])->assertOk();
     }
 
     public function test_revoke_needs_the_license_number_typed(): void

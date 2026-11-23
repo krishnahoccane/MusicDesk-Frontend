@@ -19,7 +19,8 @@ MusicDesk sells, issues and administers LabelDesk licenses itself. There is no e
 
 - Domains are normalised (scheme, `www.`, path and port removed, lower-case).
 - `staging.`, `dev.`, `test.` sub-domains, `.test` / `.local` / `.localhost` names and IP addresses count as staging.
-- A domain can be live on one license at a time.
+- A domain can be live on one license at a time. Exception: while **changing the license key**, the same installation (same `instance_id`) may activate the new key on a domain that is still active on the old key; it then releases the old key with `reason: "key_change"`, which frees that slot.
+- Deactivating from LabelDesk (4.3.2+) needs a one-time code emailed to the license owner (see `POST /deactivate`). Deactivating from the portal or the admin needs no code.
 - A license can move a domain to a new one at most 3 times per 30 days (portal: Licenses → Move).
 
 ## Add-ons
@@ -109,9 +110,38 @@ Accepts expired tokens so an install that was offline can recover; returns a fre
 }
 ```
 
+### `POST /deactivate/code` (LabelDesk 4.3.2+)
+
+`{ "token": "…" }` → `200`
+
+```json
+{ "sent": true, "sent_to": "k•••@a•••.com", "expires_in": 600 }
+```
+
+Emails a one-time 6-digit code to the license owner: the organisation's owner account, or the organisation's billing email if it has none. The address is never returned in full. The token is verified like `/check-in` (expired tokens accepted; the activation must exist and be active).
+
+- The code is random, stored hashed on the activation, valid 10 minutes and single use. A new request replaces the previous code.
+- At most 3 requests per activation per 15 minutes (`rate_limited`, 429). After 5 wrong codes the code is void.
+- Recorded in the license activity as "Deactivation code sent" with the domain, IP and masked address (portal: license *Details & history*; admin: license page *History*).
+- Email subject: "Your LabelDesk deactivation code" (uses the product name from Branding).
+
 ### `POST /deactivate`
 
-`{ "token": "…" }` → `204`. Frees the domain.
+```json
+{ "token": "…", "code": "123456", "reason": "manual" }
+```
+
+→ `204`. Frees the domain (and the same domain on the license's add-ons).
+
+| `reason` | Sent when | Code |
+|---|---|---|
+| `manual` (default) | The administrator clicks Deactivate | **Required** |
+| `transfer` | *Move to a new domain*: the same installation just activated another domain of this license | Not needed |
+| `key_change` | *Change license key*: the same installation just activated a different license key | Not needed |
+
+`transfer` and `key_change` are accepted without a code only when the token's activation has an `instance_id` and that same installation made a successful `/activate` in the last 10 minutes (`transfer`: another domain of the same license; `key_change`: another main license key). Otherwise they are treated as `manual` and need the code. The reason and IP are recorded in the license activity.
+
+Changing to a key from **another license**: the old license's add-on keys (`LDAD-…`) stop on that domain at their next hourly check-in with `addon_domain_not_licensed`, because add-ons run only on their main license's domains. The portal's Add-ons tab says so.
 
 ### `GET /public-key`
 
@@ -138,6 +168,10 @@ Token claims: `iss`, `iat`, `exp`, `lic` (license id), `act` (activation id), `d
 | `domain_blocked` | 403 | Domain was blocked under Licenses › Status |
 | `invalid_token` | 401 | Bad signature or malformed token |
 | `token_expired` | 401 | Token expired where a fresh one is required; activate again with the key |
+| `code_required` | 422 | `/deactivate` with `reason: manual` (or an unconfirmed transfer / key change) and no code |
+| `invalid_code` | 422 | Wrong, expired, already used or voided (5 wrong tries) deactivation code |
+| `rate_limited` | 429 | More than 3 deactivation code requests for an activation in 15 minutes |
+| `no_owner_email` | 422 | The license's organisation has no email to send a deactivation code to |
 
 ### `POST /report` (security webhook)
 

@@ -23,7 +23,28 @@ class LicensePresenter
 
         return $org->licenses()->core()->with(['plan', 'activations' => $live, 'addonLicenses.addon', 'addonLicenses.activations' => $live])
             ->orderByRaw("case status when 'revoked' then 1 else 0 end")->latest('purchased_at')->get()
-            ->map(fn (License $l) => self::present($l) + self::addons($l, $catalogue))->all();
+            ->map(fn (License $l) => self::present($l) + self::addons($l, $catalogue) + ['activity' => self::activity($l)])->all();
+    }
+
+    /** Recent license activity for the portal (no admin names). */
+    public static function activity(License $l, int $limit = 30): array
+    {
+        $tone = fn (string $event) => match (true) {
+            in_array($event, ['suspended', 'revoked'], true) => '#ff5757',
+            in_array($event, ['deactivation_code_sent', 'domain_deactivated', 'key_regenerated'], true) => '#ffb547',
+            in_array($event, ['created', 'renewed', 'updates_renewed', 'payment_confirmed', 'reinstated'], true) => '#22d9a0',
+            default => '#7c5cff',
+        };
+
+        return $l->events()->limit($limit)->get()->map(fn (\App\Models\LicenseEvent $e) => [
+            'label' => $e->label(),
+            'meta' => collect([
+                local_time($e->created_at)->format('M d, Y H:i'),
+                ! empty($e->details['ip']) ? 'IP '.$e->details['ip'] : null,
+                str_starts_with((string) $e->actor, 'customer: ') ? 'by '.substr($e->actor, 10) : null,
+            ])->filter()->implode(' · '),
+            'color' => $tone($e->event),
+        ])->all();
     }
 
     /** The license's add-on keys, and add-ons it could still buy. */

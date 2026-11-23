@@ -56,10 +56,24 @@ class LicenseServerController extends Controller
     public function deactivate(Request $request): JsonResponse
     {
         return $this->run(function () use ($request) {
-            $data = $request->validate(['token' => ['required', 'string', 'max:4000']]);
-            $this->activations->deactivateInstall($data['token']);
+            $data = $request->validate([
+                'token' => ['required', 'string', 'max:4000'],
+                'code' => ['nullable', 'string', 'max:12'],
+                'reason' => ['nullable', 'string', 'in:manual,transfer,key_change'],
+            ]);
+            $this->activations->deactivateInstall($data['token'], $data['code'] ?? null, $data['reason'] ?? null, $request->ip());
 
             return response()->json(null, 204);
+        });
+    }
+
+    /** POST /deactivate/code: email the license owner a one-time code for /deactivate (LabelDesk 4.3.2+). */
+    public function deactivationCode(Request $request): JsonResponse
+    {
+        return $this->run(function () use ($request) {
+            $data = $request->validate(['token' => ['required', 'string', 'max:4000']]);
+
+            return response()->json($this->activations->requestDeactivationCode($data['token'], $request->ip()));
         });
     }
 
