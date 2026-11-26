@@ -134,6 +134,9 @@ class LicenseService
         }
         $parent->loadMissing('plan.includedAddons');
         $included = $parent->plan?->includedAddons ?? collect();
+        if ($parent->isTrial() && ! ($parent->trial_limits['addons'] ?? false)) {
+            $included = collect();   // a trial without add-ons
+        }
         $children = $parent->addonLicenses()->with('addon')->get();
 
         foreach ($included as $addon) {
@@ -163,6 +166,102 @@ class LicenseService
                 $child->save();
             }
         }
+    }
+
+    // ------------------------------------------------------------ Free trials
+
+    /**
+     * Start a free trial of a plan: a license with billing_type "trial" that ends after the plan's
+     * trial days, with the plan's trial limits. One per organisation.
+     *
+     * @return array{0: License, 1: string}
+     */
+    public function createTrial(Organisation $org, Plan $plan, string $actor): array
+    {
+        if (! $plan->offersTrial()) {
+            throw new LicenseException('no_trial', 'The '.$plan->name.' plan has no free trial.', 422);
+        }
+        if ($org->trial_used_at) {
+            throw new LicenseException('trial_used', 'Your account has already used its free trial. Buy a license to keep using '.setting('branding.product_name', 'LabelDesk').'.', 422);
+        }
+
+        $key = LicenseKey::generate();
+        $limits = $plan->trialLimits();
+        $license = DB::transaction(function () use ($org, $plan, $key, $limits, $actor) {
+            $now = now();
+            $license = License::create([
+                'number' => $this->nextNumber(),
+                'organisation_id' => $org->id,
+                'plan_id' => $plan->id,
+                'billing_type' => License::TRIAL,
+                'status' => License::ACTIVE,
+                'key_hash' => LicenseKey::hash($key),
+                'key_encrypted' => $key,
+                'key_last4' => substr($key, -4),
+                'domains_included' => $limits['domains'],
+                'domains_extra' => 0,
+                'purchased_at' => $now,
+                'expires_at' => $now->copy()->addDays($plan->trial_days),
+                'support_until' => $now->copy()->addDays($plan->trial_days),
+                'auto_renew' => false,
+                'price_paid' => 0,
+                'currency' => 'USD',
+                'trial_limits' => $limits,
+                'trial_started_at' => $now,
+            ]);
+            $org->forceFill(['trial_used_at' => $now])->save();
+            $this->event($license, 'trial_started', ['plan' => $plan->code, 'days' => $plan->trial_days, 'limits' => Plan::summariseLimits($limits)], $actor);
+            $this->syncAddons($license, $actor);
+
+            return $license;
+        });
+
+        return [$license, $key];
+    }
+
+    /**
+     * Buying a plan while a trial runs (or after it ended): the trial becomes the paid license.
+     * Same key and domains; limits removed; a suspended (ended) trial is active again.
+     *
+     * @param  array{billing_type: string, domains_extra?: int, price_paid?: float, currency?: string, pending?: bool, auto_renew?: ?bool}  $options
+     */
+    public function convertTrial(License $trial, Plan $plan, array $options, string $actor): License
+    {
+        if (! $trial->isTrial() || $trial->status === License::REVOKED) {
+            throw new LicenseException('not_trial', 'This license is not a trial.', 422);
+        }
+        $annual = $options['billing_type'] === 'annual';
+
+        return $this->change($trial, 'trial_converted', function (License $l) use ($plan, $options, $annual) {
+            $now = now();
+            $pending = $options['pending'] ?? false;
+            $l->fill([
+                'plan_id' => $plan->id,
+                'billing_type' => $options['billing_type'],
+                'status' => $pending ? License::PENDING : License::ACTIVE,
+                'status_reason' => null,
+                'pending_until' => $pending ? $now->copy()->addDays(License::PENDING_DAYS) : null,
+                'domains_included' => $plan->domains,
+                'domains_extra' => max(0, (int) ($options['domains_extra'] ?? 0)),
+                'purchased_at' => $now,
+                'expires_at' => $annual ? $now->copy()->addYear() : null,
+                'support_until' => $now->copy()->addYear(),
+                'auto_renew' => $options['auto_renew'] ?? $annual,
+                'price_paid' => (float) ($options['price_paid'] ?? 0),
+                'currency' => strtoupper($options['currency'] ?? 'USD'),
+                'trial_limits' => null,
+                'max_version' => null,
+            ]);
+        }, $actor, ['plan' => $plan->code, 'billing_type' => $options['billing_type']]);
+    }
+
+    /** Trial over (+10 read-only days, as for an expired license): suspend it. */
+    public function endTrial(License $trial, string $actor): License
+    {
+        return $this->change($trial, 'trial_ended', function (License $l) {
+            $l->status = License::SUSPENDED;
+            $l->status_reason = 'Free trial ended';
+        }, $actor);
     }
 
     /** Annual: one more year from the later of now and the current expiry (updates included). */

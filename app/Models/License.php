@@ -28,6 +28,12 @@ class License extends Model
 
     public const PENDING_DAYS = 14;
 
+    /** billing_type of a free trial (others: annual, lifetime). */
+    public const TRIAL = 'trial';
+
+    /** After a license (or trial) expires LabelDesk is read-only this many days, then locked. */
+    public const READ_ONLY_DAYS = 10;
+
     protected $guarded = ['id'];
 
     protected $hidden = ['key_hash', 'key_encrypted'];
@@ -50,6 +56,8 @@ class License extends Model
             'domains_included' => 'integer',
             'domains_extra' => 'integer',
             'price_paid' => 'float',
+            'trial_limits' => 'array',
+            'trial_started_at' => 'datetime',
         ];
     }
 
@@ -84,6 +92,16 @@ class License extends Model
     public function addonLicenses(): HasMany
     {
         return $this->hasMany(License::class, 'parent_id')->orderBy('id');
+    }
+
+    public function isTrial(): bool
+    {
+        return $this->billing_type === self::TRIAL;
+    }
+
+    public function trialDaysLeft(): ?int
+    {
+        return $this->isTrial() && $this->expires_at ? max(0, (int) ceil(now()->diffInHours($this->expires_at, false) / 24)) : null;
     }
 
     public function isAddon(): bool

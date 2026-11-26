@@ -60,10 +60,31 @@ class PlanController extends Controller
             'extra_domain_price' => ['required', 'numeric', 'min:0'],
             'features' => ['nullable', 'string', 'max:3000'],
             'sort' => ['nullable', 'integer'],
-        ]);
+            'trial_days' => [$request->boolean('trial_enabled') ? 'required' : 'nullable', 'integer', 'min:1', 'max:365'],
+            'trial_domains' => ['nullable', 'integer', 'min:1', 'max:100'],
+            'trial_users' => ['nullable', 'integer', 'min:1'],
+            'trial_artists' => ['nullable', 'integer', 'min:1'],
+            'trial_releases' => ['nullable', 'integer', 'min:1'],
+            'trial_tracks' => ['nullable', 'integer', 'min:1'],
+            'trial_note' => ['nullable', 'string', 'max:300'],
+        ], ['trial_days.required' => 'Enter how many days the free trial lasts.']);
         $data['features'] = array_values(array_filter(array_map('trim', preg_split('/\R/', $data['features'] ?? ''))));
         $data['featured'] = $request->boolean('featured');
         $data['active'] = $request->boolean('active');
+
+        // Free trial: number of days and the limits LabelDesk enforces during it.
+        $data['trial_enabled'] = $request->boolean('trial_enabled');
+        $data['trial_days'] = $data['trial_days'] ?? null;
+        $data['trial_limits'] = [
+            'domains' => (int) ($data['trial_domains'] ?? 1),
+            'users' => $data['trial_users'] ?? null,
+            'artists' => $data['trial_artists'] ?? null,
+            'releases' => $data['trial_releases'] ?? null,
+            'tracks' => $data['trial_tracks'] ?? null,
+            'addons' => $request->boolean('trial_addons'),
+            'note' => $data['trial_note'] ?? null,
+        ];
+        unset($data['trial_domains'], $data['trial_users'], $data['trial_artists'], $data['trial_releases'], $data['trial_tracks'], $data['trial_note']);
 
         return $data;
     }
