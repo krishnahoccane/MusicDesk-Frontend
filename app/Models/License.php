@@ -193,7 +193,7 @@ class License extends Model
             if ($this->expires_at->lte($now)) {
                 return 'expired';
             }
-            if ($this->expires_at->lte($now->copy()->addDays(self::EXPIRING_DAYS))) {
+            if ($this->expires_at->lte($now->copy()->addDays($this->isTrial() ? 3 : self::EXPIRING_DAYS))) {
                 return 'expiring';
             }
         }

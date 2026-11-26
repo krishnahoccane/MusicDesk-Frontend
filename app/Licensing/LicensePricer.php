@@ -34,6 +34,10 @@ class LicensePricer
         if ($license->isAddon()) {
             return $this->addonOptions($license);
         }
+        if ($license->isTrial()) {   // a trial is turned into a paid license by buying the plan (checkout)
+            return array_fill_keys(['renewal', 'updates_renewal', 'extra_domains', 'change_plan', 'convert_lifetime', 'addon'],
+                'This is a free trial. Buy the '.($license->plan?->name ?? '').' plan to keep this key: the trial becomes your license.');
+        }
         $usable = $license->allowsUse() || $license->displayStatus() === 'expired';
         $blocked = in_array($license->status, [License::SUSPENDED, License::REVOKED], true) ? 'This license is '.$license->status.'.' : null;
         $annual = $license->billing_type === 'annual';

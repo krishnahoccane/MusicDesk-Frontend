@@ -26,6 +26,14 @@ class LicenseEvent extends Model
     {
         return match ($this->event) {
             'created' => 'License created',
+            'trial_started' => 'Free trial started ('.($this->details['days'] ?? '').' days'.(isset($this->details['limits']) ? ': '.$this->details['limits'] : '').')',
+            'trial_converted' => 'Trial converted to a paid '.($this->details['billing_type'] ?? '').' license'.(isset($this->details['plan']) ? ' ('.ucfirst($this->details['plan']).')' : ''),
+            'trial_ended' => 'Free trial ended: license suspended',
+            'trial_notice' => match ($this->details['stage'] ?? null) {
+                'ending' => 'Trial ending reminder sent',
+                'ended' => 'Trial ended email sent (read-only for 10 days)',
+                default => 'Trial suspended email sent',
+            },
             'renewed' => 'Renewed for 12 months',
             'updates_renewed' => 'Updates & support renewed',
             'domains_added' => 'Extra domains added ('.($this->details['added'] ?? '').')',

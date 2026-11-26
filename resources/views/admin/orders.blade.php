@@ -67,6 +67,10 @@
                                                 <button class="nav-link w-full !py-1.5 text-xs !text-coral-400"><x-icon name="refresh" class="size-3.5"/> Record refund</button>
                                             </form>
                                         @endif
+                                        @if (auth()->user()->canAdmin('delete'))
+                                            <div class="my-1 border-t hairline"></div>
+                                            <button class="nav-link w-full !py-1.5 text-xs !text-coral-400" @click="m = false; $dispatch('delete-order', { action: @js(route('admin.orders.destroy', $o)), expected: @js($o->number) })"><x-icon name="trash" class="size-3.5"/> Delete order</button>
+                                        @endif
                                     </div>
                                 </div>
                             </td>
@@ -79,4 +83,8 @@
         </div>
         @if ($orders->hasPages())<div class="border-t hairline px-4 py-3 text-sm">{{ $orders->links() }}</div>@endif
     </div>
+    @if (auth()->user()->canAdmin('delete'))
+        @include('admin.partials.delete-modal', ['event' => 'delete-order', 'title' => 'Delete order', 'invoices' => true,
+            'warning' => 'The order is removed from Orders and from the customer’s billing history. A license it created is kept; delete that from its license page if needed.'])
+    @endif
 </x-layouts.app>

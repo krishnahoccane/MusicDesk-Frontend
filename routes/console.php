@@ -26,3 +26,6 @@ Schedule::command('currency:update-rates')->dailyAt('00:05')->withoutOverlapping
 
 // Renewal reminders 30 / 14 / 3 days before an annual license expires (see licenses:notify-expiring).
 Schedule::command('licenses:notify-expiring')->dailyAt('08:00')->withoutOverlapping()->onOneServer();
+
+// Free trials: reminder 3 days before the end, "ended" email, then suspension after the 10 read-only days.
+Schedule::command('licenses:end-trials')->hourly()->withoutOverlapping()->onOneServer();

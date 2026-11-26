@@ -107,18 +107,22 @@
                         <div x-data="{ m: false }" class="relative">
                             <button @click="m = !m" class="btn btn-outline btn-sm !px-2" aria-label="License actions"><x-icon name="more"/></button>
                             <div x-show="m" x-cloak @click.outside="m = false" x-transition.origin.top.right class="absolute right-0 z-20 mt-2 w-60 rounded-2xl glass !bg-ink-900/95 p-1.5 shadow-2xl shadow-black/60">
-                                @if ($l['type'] === 'Lifetime')
+                                @if ($l['trial'])
+                                    <a href="{{ $l['trial']['buy_url'] }}" class="nav-link w-full"><x-icon name="key"/> Buy {{ $l['tier'] }} (keeps this key)</a>
+                                @elseif ($l['type'] === 'Lifetime')
                                     <a href="{{ route('licenses.buy', [$l['uid'], 'updates_renewal']) }}" class="nav-link w-full"><x-icon name="refresh"/> Renew updates (40% off)</a>
                                 @else
                                     <a href="{{ route('licenses.buy', [$l['uid'], 'renewal']) }}" class="nav-link w-full"><x-icon name="refresh"/> Renew now</a>
                                     <a href="{{ route('licenses.buy', [$l['uid'], 'convert_lifetime']) }}" class="nav-link w-full"><x-icon name="zap"/> Switch to lifetime</a>
                                 @endif
+                                @unless ($l['trial'])
                                 <a href="{{ route('licenses.buy', [$l['uid'], 'change_plan']) }}" class="nav-link w-full"><x-icon name="layers"/> Upgrade tier</a>
                                 <a href="{{ route('licenses.buy', [$l['uid'], 'extra_domains']) }}" class="nav-link w-full"><x-icon name="plus"/> Buy extra domains</a>
                                 @if (! empty($l['available_addons']))<a href="{{ route('licenses.buy', [$l['uid'], 'addon']) }}" class="nav-link w-full"><x-icon name="layers"/> Buy an add-on</a>@endif
+                                @endunless
                                 <a href="{{ route('dashboard.licenses.certificate', $l['uid']) }}" class="nav-link w-full"><x-icon name="file"/> License certificate (PDF)</a>
                                 <button class="nav-link w-full" @click="m = false; $dispatch('open-offline', { uid: @js($l['uid']), id: @js($l['id']) })"><x-icon name="upload"/> Offline activation</button>
-                                @if ($l['renews'] && ! $l['auto_renew'])
+                                @if ($l['renews'] && ! $l['auto_renew'] && ! $l['trial'])
                                     <button class="nav-link w-full" @click="m = false; autoRenew(true)"><x-icon name="refresh"/> Turn on renewal reminders</button>
                                 @endif
                                 @if ($l['renews'] && $l['auto_renew'])
@@ -134,7 +138,23 @@
                     </div>
                 </div>
 
-                @if (in_array($l['status'], ['suspended', 'revoked'], true))
+                @if ($l['trial'])
+                    @php $t = $l['trial']; $ended = in_array($l['status'], ['expired', 'suspended'], true); @endphp
+                    <div class="mx-5 mb-5 flex flex-col gap-3 rounded-xl border {{ $ended ? 'border-coral-500/25 bg-coral-500/[0.06]' : 'border-volt-500/25 bg-volt-500/[0.06]' }} p-4 text-sm sm:mx-6 sm:flex-row sm:items-center">
+                        <x-icon name="sparkles" class="size-4 shrink-0 {{ $ended ? 'text-coral-400' : 'text-volt-300' }}"/>
+                        <span class="flex-1 text-ink-200">
+                            @if ($l['status'] === 'suspended')
+                                Your free trial has ended and the read-only period is over, so this trial license is suspended and {{ $l['product'] }} is locked.
+                            @elseif ($l['status'] === 'expired')
+                                Your free trial ended on {{ $t['ends'] }}. {{ $l['product'] }} is read-only until {{ $t['locks'] }}, then the trial is suspended.
+                            @else
+                                Free trial: <b class="text-white">{{ $t['days_left'] }} {{ Str::plural('day', $t['days_left']) }} left</b> (ends {{ $t['ends'] }}).
+                            @endif
+                            <span class="block text-xs text-ink-400">Trial limits: {{ $t['limits'] }}{{ $t['note'] ? ' · '.$t['note'] : '' }}. Buying keeps this key, your domains and data.</span>
+                        </span>
+                        <a href="{{ $t['buy_url'] }}" class="btn btn-primary btn-sm shrink-0">Buy {{ $l['tier'] }}</a>
+                    </div>
+                @elseif (in_array($l['status'], ['suspended', 'revoked'], true))
                     <div class="mx-5 mb-5 flex items-start gap-3 rounded-xl border border-coral-500/25 bg-coral-500/[0.06] p-4 text-sm sm:mx-6">
                         <x-icon name="ban" class="mt-0.5 size-4 text-coral-400"/>
                         <span class="flex-1 text-ink-200">This license is <b class="text-coral-400">{{ $l['status'] }}</b>{{ !empty($l['status_reason']) ? ': '.$l['status_reason'] : '' }}. Sites using it are read-only. <a href="{{ route('dashboard.support') }}" class="text-volt-300 underline">Contact support</a>.</span>

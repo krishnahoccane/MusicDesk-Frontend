@@ -14,7 +14,8 @@
                     <div class="min-w-0 flex-1">
                         <div class="flex items-center gap-2"><span class="font-semibold text-white">{{ $plan->name }}</span>
                             <span class="badge {{ $plan->active ? 'badge-mint' : 'badge-ink' }}">{{ $plan->active ? 'On sale' : 'Hidden' }}</span>
-                            @if ($plan->featured)<span class="badge badge-volt">Featured</span>@endif</div>
+                            @if ($plan->featured)<span class="badge badge-volt">Featured</span>@endif
+                            @if ($plan->offersTrial())<span class="badge badge-amber" title="{{ $plan->trialSummary() }}">{{ $plan->trial_days }}-day free trial</span>@endif</div>
                         <div class="text-xs text-ink-500"><span class="font-mono">{{ $plan->code }}</span> · {{ $plan->domains }} domains · ${{ number_format($plan->price_annual) }}/yr{{ $plan->price_lifetime ? ' · $'.number_format($plan->price_lifetime).' lifetime' : '' }}</div>
                     </div>
                     <div class="hidden gap-1.5 lg:flex">

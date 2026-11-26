@@ -4,7 +4,16 @@
 @endphp
 <x-layouts.app area="admin" :title="$org->name" :subtitle="$org->email.($org->country ? ' · '.$org->country : '').' · customer since '.local_time($org->created_at)->format('M Y')">
     <x-slot:eyebrow><a href="{{ route('admin.customers') }}" class="hover:text-white">Admin · Customers</a></x-slot:eyebrow>
-    <x-slot:actions><a href="{{ route('admin.licenses.create', ['organisation' => $org->id]) }}" class="btn btn-primary btn-sm"><x-icon name="key" class="size-3.5"/> Issue license</a></x-slot:actions>
+    <x-slot:actions>
+        <a href="{{ route('admin.licenses.create', ['organisation' => $org->id]) }}" class="btn btn-primary btn-sm"><x-icon name="key" class="size-3.5"/> Issue license</a>
+        @if (auth()->user()->canAdmin('delete'))
+            <button class="btn btn-danger btn-sm" @click="$dispatch('delete-customer')"><x-icon name="trash" class="size-3.5"/> Delete customer</button>
+        @endif
+    </x-slot:actions>
+    @if (auth()->user()->canAdmin('delete'))
+        @include('admin.partials.delete-modal', ['event' => 'delete-customer', 'title' => 'Delete '.$org->name, 'action' => route('admin.customers.destroy', $org), 'expected' => $org->name, 'what' => 'name',
+            'warning' => 'Deletes the organisation with its '.$org->users()->count().' user account(s), '.$org->licenses->count().' license(s) (installs lock at their next check-in), '.$org->orders()->count().' order(s), their invoices and support tickets.'])
+    @endif
 
     <div class="grid gap-4 sm:grid-cols-4">
         <x-stat label="Licenses" value="{{ $org->licenses->count() }}" icon="key" color="#ff3fd2"/>

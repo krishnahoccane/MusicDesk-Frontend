@@ -455,6 +455,11 @@ class ActivationService
         if ($elsewhere) {
             throw new LicenseException('domain_in_use', 'That domain is already active on another license.');
         }
+        // A domain runs one free trial: refuse a trial key on a domain another trial license has used.
+        if ($license->isTrial() && LicenseActivation::query()->where('domain', $domain)->where('license_id', '!=', $license->id)
+            ->whereHas('license', fn ($l) => $l->whereNotNull('trial_started_at')->whereNull('addon_id'))->exists()) {
+            throw new LicenseException('trial_used', 'This domain has already run a free trial. Buy a license to use '.setting('branding.product_name', 'LabelDesk').' on it.', 409, 'domain');
+        }
         if ($license->isAddon()) {
             $main = $license->parent?->activations()->where('domain', $domain)->where('status', '!=', LicenseActivation::DEACTIVATED)->first();
             if (! $main) {
@@ -527,6 +532,10 @@ class ActivationService
             // 10 days after this date and locked afterwards until renewed.
             'expires' => $license->billing_type === 'lifetime' ? null : $license->expires_at?->timestamp,
             'max_version' => $license->maxVersion(),
+            // Free trial (LabelDesk 4.3.4+): limits to enforce while it runs. "expires" is the trial's end;
+            // after it LabelDesk is read-only for 10 days, then locked, as for an expired annual license.
+            'trial' => $license->isTrial(),
+            'limits' => $license->isTrial() ? self::tokenLimits($license) : null,
             // Add-on keys: which add-on, and the main license it belongs to.
             'addon' => $license->addon?->code,
             'parent' => $license->parent?->uuid,
@@ -539,6 +548,11 @@ class ActivationService
         if ($license->displayStatus() === 'expired' && $license->billing_type === 'annual') {
             $lock = $license->expires_at?->copy()->addDays(10);
             $messages[] = 'Your annual license has expired. LabelDesk is read-only'.($lock ? ' and will be locked after '.$lock->toFormattedDateString() : ' for 10 days and then locked').' unless you renew.';
+        } elseif ($license->isTrial()) {
+            $lock = $license->expires_at?->copy()->addDays(License::READ_ONLY_DAYS);
+            $messages[] = $license->displayStatus() === 'expired'
+                ? 'Your free trial has ended. LabelDesk is read-only and will be locked after '.$lock?->toFormattedDateString().' unless you buy a license.'
+                : 'Free trial: '.$license->trialDaysLeft().' '.\Illuminate\Support\Str::plural('day', (int) $license->trialDaysLeft()).' left (ends '.$license->expires_at?->toFormattedDateString().'). Buy a license to keep your data and settings.';
         } elseif ($license->status === License::PENDING) {
             $messages[] = 'Awaiting payment. This license works until '.$license->pending_until?->toDateString().'.';
         }
@@ -551,7 +565,21 @@ class ActivationService
             'max_version' => $license->maxVersion(),
             'check_in_requested' => (bool) $activation->check_in_requested,
             'addon' => $license->addon?->code,
+            'trial' => $license->isTrial(),
+            'limits' => $license->isTrial() ? self::tokenLimits($license) : null,
             'messages' => $messages,
+        ];
+    }
+
+    /** Trial limits LabelDesk enforces: {domains, users, artists, releases, tracks} (null = no limit) and addons. */
+    public static function tokenLimits(License $license): array
+    {
+        $l = $license->trial_limits ?? [];
+
+        return [
+            'domains' => $license->domainLimit(),
+            ...collect(\App\Models\Plan::TRIAL_LIMITS)->mapWithKeys(fn ($label, $k) => [$k => isset($l[$k]) ? (int) $l[$k] : null])->all(),
+            'addons' => (bool) ($l['addons'] ?? false),
         ];
     }
 }

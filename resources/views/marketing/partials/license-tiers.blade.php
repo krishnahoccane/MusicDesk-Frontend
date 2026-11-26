@@ -78,6 +78,10 @@
                    class="btn mt-5 w-full {{ $featured ? 'btn-primary' : 'btn-outline' }}">
                     <x-icon name="key" class="size-4"/> <span x-text="total('{{ $id }}') === null ? 'Contact sales' : 'Buy {{ $plan->name }}'">Buy {{ $plan->name }}</span>
                 </a>
+                @if ($plan->offersTrial())
+                    <a href="{{ route('trial', $id) }}" class="btn btn-ghost mt-2 w-full text-sm"><x-icon name="sparkles" class="size-4"/> Start {{ $plan->trial_days }}-day free trial</a>
+                    <p class="mt-1 text-center text-[11px] text-ink-500">No card needed · {{ $plan->trialSummary() }}</p>
+                @endif
 
                 <ul class="mt-7 space-y-3 border-t hairline pt-6 text-sm">
                     @foreach ($plan->features ?? [] as $f)

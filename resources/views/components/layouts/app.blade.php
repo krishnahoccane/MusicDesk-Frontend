@@ -94,7 +94,7 @@
                 </span>
             </div>
         @elseif ($isAdmin)
-            <p class="mx-5 mb-2 text-[11px] leading-relaxed text-ink-500">Site admin for {{ parse_url(config('app.url'), PHP_URL_HOST) }}: licensing, support, payments and storefront.</p>
+            <p class="mx-5 mb-2 text-[11px] leading-relaxed text-ink-500">Site admin for {{ parse_url(config('app.url'), PHP_URL_HOST) }}: licensing, support, payments and storefront. <span class="font-mono">v{{ config('app.version') }}</span></p>
         @endif
 
         <nav class="flex-1 space-y-6 overflow-y-auto px-3 py-3">

@@ -9,7 +9,14 @@
     <x-slot:actions>
         <span class="badge badge-dot {{ Demo::statusBadge($st) }} !text-xs">{{ $st }}</span>
         <a href="{{ route('admin.customers.show', $org) }}" class="btn btn-outline btn-sm"><x-icon name="users" class="size-3.5"/> Customer</a>
+        @if (auth()->user()->canAdmin('delete'))
+            <button class="btn btn-danger btn-sm" @click="$dispatch('delete-license')"><x-icon name="trash" class="size-3.5"/> Delete</button>
+        @endif
     </x-slot:actions>
+    @if (auth()->user()->canAdmin('delete'))
+        @include('admin.partials.delete-modal', ['event' => 'delete-license', 'title' => 'Delete license '.$license->number, 'action' => route('admin.licenses.destroy', $license), 'expected' => $license->number,
+            'warning' => 'The key stops working: every install using it fails its next check-in and locks. Its domains'.($license->addonLicenses()->exists() ? ', add-on keys ('.$license->addonLicenses()->pluck('number')->implode(', ').')' : '').' and history are deleted. Orders and invoices are kept. To stop a license but keep its record, suspend or revoke it instead.'])
+    @endif
 
     @if (session('new_key'))
         <div class="mb-4 rounded-2xl border border-mint-500/30 bg-mint-500/[0.07] p-5" x-data="{ key: @js(session('new_key')) }">

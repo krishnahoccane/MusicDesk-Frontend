@@ -77,6 +77,21 @@ class OrderFulfiller
             if ($order->license_id) {
                 return;
             }
+            $trial = License::query()->core()->where('organisation_id', $order->organisation_id)->where('billing_type', License::TRIAL)
+                ->where('status', '!=', License::REVOKED)->latest('id')->first();
+            if ($trial) {
+                $license = $this->licenses->convertTrial($trial, $order->plan, [
+                    'billing_type' => $order->billing_type,
+                    'domains_extra' => $order->extra_domains,
+                    'price_paid' => $order->total,
+                    'currency' => $order->currency,
+                    'pending' => $pending,
+                    'auto_renew' => $order->billing_type === 'annual',
+                ], $actor);
+                $order->update(['license_id' => $license->id, 'meta' => array_merge($order->meta ?? [], ['converted_trial' => $trial->number])]);
+
+                return;
+            }
             [$license] = $this->licenses->create($order->organisation, $order->plan, [
                 'billing_type' => $order->billing_type,
                 'domains_extra' => $order->extra_domains,

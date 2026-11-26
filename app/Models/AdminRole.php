@@ -19,6 +19,7 @@ class AdminRole extends Model
         'storefront' => ['Storefront', 'Branding, homepage text, pricing plans, legal pages, contact'],
         'payments' => ['Payments & settings', 'Gateways, currencies, invoicing and localisation'],
         'team' => ['Team & roles', 'Invite, change and remove team members; edit roles'],
+        'delete' => ['Delete records', 'Permanently delete orders, licenses and customers (with the area’s own permission)'],
     ];
 
     /** Seeded by the migration; admins can add their own. */

@@ -35,6 +35,8 @@ Route::post('/locale/timezone', [LocaleController::class, 'timezone'])->name('lo
 |--------------------------------------------------------------------------
 */
 Route::get('/checkout/{plan}', [CheckoutController::class, 'show'])->name('checkout');
+Route::get('/trial/{plan}', [\App\Http\Controllers\TrialController::class, 'show'])->name('trial');
+Route::post('/trial/{plan}', [\App\Http\Controllers\TrialController::class, 'store'])->middleware('throttle:5,1')->name('trial.store');
 Route::post('/checkout/{plan}/quote', [CheckoutController::class, 'quote'])->name('checkout.quote');
 Route::post('/checkout/{plan}', [CheckoutController::class, 'store'])->middleware('throttle:10,1')->name('checkout.store');
 
@@ -156,6 +158,7 @@ Route::middleware(['auth', 'admin'])->prefix('admin')->name('admin.')->group(fun
         Route::get('/orders', [Admin\OrderAdminController::class, 'orders'])->name('orders');
         Route::post('/orders/{order}/paid', [Admin\OrderAdminController::class, 'markPaid'])->name('orders.paid');
         Route::post('/orders/{order}/refund', [Admin\OrderAdminController::class, 'refund'])->name('orders.refund');
+        Route::delete('/orders/{order}', [Admin\DeleteController::class, 'order'])->middleware('admin.can:delete')->name('orders.destroy');
         Route::get('/invoices', [Admin\OrderAdminController::class, 'invoices'])->name('invoices');
     });
 
@@ -176,6 +179,7 @@ Route::middleware(['auth', 'admin'])->prefix('admin')->name('admin.')->group(fun
         Route::post('/licenses/{license}/status', [Admin\LicenseAdminController::class, 'status'])->name('licenses.status');
         Route::post('/licenses/{license}/reveal', [Admin\LicenseAdminController::class, 'reveal'])->middleware('throttle:30,1')->name('licenses.reveal');
         Route::post('/licenses/{license}/regenerate', [Admin\LicenseAdminController::class, 'regenerate'])->name('licenses.regenerate');
+        Route::delete('/licenses/{license}', [Admin\DeleteController::class, 'license'])->middleware('admin.can:delete')->name('licenses.destroy');
         Route::post('/licenses/{license}/addons', [Admin\LicenseAdminController::class, 'issueAddon'])->name('licenses.addons.store');
         Route::post('/licenses/{license}/domains', [Admin\LicenseAdminController::class, 'addDomain'])->name('licenses.domains.add');
         Route::delete('/licenses/{license}/domains/{activation}', [Admin\LicenseAdminController::class, 'deactivateDomain'])->name('licenses.domains.deactivate');
@@ -186,6 +190,7 @@ Route::middleware(['auth', 'admin'])->prefix('admin')->name('admin.')->group(fun
         Route::get('/customers', [Admin\CustomerAdminController::class, 'index'])->name('customers');
         Route::get('/customers/{organisation}', [Admin\CustomerAdminController::class, 'show'])->name('customers.show');
         Route::put('/customers/{organisation}', [Admin\CustomerAdminController::class, 'update'])->name('customers.update');
+        Route::delete('/customers/{organisation}', [Admin\DeleteController::class, 'customer'])->middleware('admin.can:delete')->name('customers.destroy');
     });
 
     Route::middleware('admin.can:support')->group(function () {
