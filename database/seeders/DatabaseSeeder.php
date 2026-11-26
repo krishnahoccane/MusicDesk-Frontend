@@ -37,6 +37,9 @@ class DatabaseSeeder extends Seeder
         $this->users();
         $this->licenseAddons();
         $this->releases();
+        // Demo: a 14-day free trial on Starter.
+        Plan::where('code', 'starter')->first()?->fill(['trial_enabled' => true, 'trial_days' => 14,
+            'trial_limits' => ['domains' => 1, 'users' => 3, 'artists' => 25, 'releases' => 50, 'tracks' => null, 'addons' => false, 'note' => 'No store deliveries during the trial']])->save();
         $this->licenses();
         $this->support();
         $this->securityAlerts();

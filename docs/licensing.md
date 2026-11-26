@@ -35,6 +35,15 @@ Licensed add-ons are optional LabelDesk modules (e.g. DDEX delivery, SSO). They'
 - **Releases:** a release belongs to LabelDesk or to an add-on (*Product* on the release form). Versions are unique per product. Add-on packages can only be downloaded with that add-on's key, within its updates period, and are listed under Downloads › Add-on packages.
 - **LabelDesk plugins:** the add-on codes `bulk_upload`, `rest_api`, `incoming_webhooks` and `sso` are LabelDesk plugins (the code is `addon` in the plugin's `plugin.json`). A LabelDesk install activates them with the add-on key through the [add-on API](#add-on-api-labeldesk-plugins) below. Their releases must be plugin ZIPs (see [Add-on packages](#add-on-packages)).
 
+## Free trials
+
+A plan can offer a free trial (Admin → Pricing plans): length in days and limits (production domains, max users / artists / releases / tracks, add-ons yes or no, a note for customers). Customers start it from the pricing page (`/trial/{plan}`) without paying.
+
+- The trial is a license with `billing_type: "trial"`, `expires_at` = end of the trial, the limits copied onto it (`trial_limits`). One per organisation (`organisations.trial_used_at`); a trial key can't activate a domain another trial license has used (`trial_used`, 409).
+- Token and activate / check-in responses carry `trial` and `limits` (see `docs/labeldesk-changes-2.0.1.md`).
+- Ending, like an expired annual license: read-only for 10 days after `expires_at`, then locked; `licenses:end-trials` (hourly) suspends the trial ("Free trial ended") and emails the customer 3 days before the end, at the end and at suspension.
+- Paying for a new license while the organisation has a trial converts the trial in place (same key and domains, limits removed, reactivated if suspended); history shows "Trial converted".
+
 ## Purchases
 
 | Kind | Price |
@@ -62,6 +71,7 @@ Refunding an order (`/admin/orders`) revokes the license if it was a new-license
 | `/admin/support` | Support tickets: needs reply / awaiting customer / resolved, priority, assignee, reply or internal note, attachments. Customers are emailed each public reply |
 | `/admin/customers` | Organisations with team, licenses, orders, invoices and revenue; edit billing details and internal notes |
 | `/admin/plans` | Plans, **licensed add-ons** (prices, included plans), services and coupons |
+| Delete | Orders (optionally with invoices), licenses (with add-on keys, domains, history) and customers (everything they own) can be deleted for good by team members with **Delete records** plus the area's permission, after typing the number or name |
 | `/admin/releases` | Publish versions (of LabelDesk or of an add-on) with changelog, requirements, **Minimum PHP** (and for add-ons Minimum LabelDesk) and the private `.zip` package (SHA-256 recorded). Packages are checked, and signed if needed, on upload; each release shows *Signed* and its number of over-the-air downloads |
 
 ## Scheduled jobs
@@ -199,6 +209,7 @@ Token claims: `iss`, `iat`, `exp`, `lic` (license id), `act` (activation id), `d
 | `code_required` | 422 | `/deactivate` with `reason: manual` (or an unconfirmed transfer / key change) and no code |
 | `invalid_code` | 422 | Wrong, expired, already used or voided (5 wrong tries) deactivation code |
 | `rate_limited` | 429 | More than 3 deactivation code requests for an activation in 15 minutes |
+| `trial_used` | 409 | A trial key on a domain that has already run a free trial |
 | `no_owner_email` | 422 | The license's organisation has no email to send a deactivation code to |
 | `updates_expired` | 403 | `/updates/download`: the release came out after the updates period (or above the version cap) |
 | `release_not_found` | 404 | `/updates/download`: unknown, unpublished or unsigned version (or unknown product) |
