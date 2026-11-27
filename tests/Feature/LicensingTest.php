@@ -172,7 +172,7 @@ class LicensingTest extends TestCase
         $this->actingAs($this->admin)->post(route('admin.licenses.store'), [
             'new_org_name' => 'Wavefront Ltd', 'new_org_email' => 'billing@wavefront.test', 'new_org_country' => 'DE',
             'plan_id' => Plan::where('code', 'starter')->value('id'), 'billing_type' => 'annual', 'status' => 'active',
-            'primary_domain' => 'music.wavefront.test', 'record_sale' => '1', 'amount' => 449, 'currency' => 'EUR', 'payment' => 'manual', 'paid' => '1',
+            'primary_domain' => 'music.wavefront.test', 'record_sale' => '1', 'price' => 'custom', 'amount' => 449, 'currency' => 'EUR', 'payment' => 'manual', 'paid' => '1',
         ])->assertRedirect()->assertSessionHas('new_key');
 
         $license = License::latest('id')->firstOrFail();

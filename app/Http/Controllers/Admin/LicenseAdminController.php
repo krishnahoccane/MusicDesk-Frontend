@@ -16,6 +16,7 @@ use App\Models\Order;
 use App\Models\Organisation;
 use App\Models\Plan;
 use App\Services\Orders\InvoiceService;
+use App\Services\Orders\OrderPricer;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -75,7 +76,7 @@ class LicenseAdminController extends Controller
     }
 
     /** Manual sale, partner/comp license or replacement. Optionally records the sale (order + invoice). */
-    public function store(Request $request, InvoiceService $invoices): RedirectResponse
+    public function store(Request $request, InvoiceService $invoices, OrderPricer $pricer): RedirectResponse
     {
         $data = $request->validate([
             'organisation_id' => ['nullable', 'integer', 'exists:organisations,id'],
@@ -89,37 +90,60 @@ class LicenseAdminController extends Controller
             'primary_domain' => ['nullable', 'string', 'max:253'],
             'notes' => ['nullable', 'string', 'max:2000'],
             'record_sale' => ['nullable', 'boolean'],
-            'amount' => ['required_if:record_sale,1', 'nullable', 'numeric', 'min:0'],
+            'price' => ['required_if:record_sale,1', 'nullable', 'in:list,custom'],
+            'amount' => ['required_if:price,custom', 'nullable', 'numeric', 'min:0'],
             'currency' => ['required_if:record_sale,1', 'nullable', 'string', 'size:3'],
             'payment' => ['nullable', Rule::in(['bank_transfer', 'manual'])],
             'paid' => ['nullable', 'boolean'],
             'alert_id' => ['nullable', 'integer', 'exists:license_alerts,id'],
         ]);
 
+        // Record a sale at list price (with the customer's tax) or a custom total.
+        $currency = strtoupper($data['currency'] ?? 'USD');
+        $extra = (int) ($data['domains_extra'] ?? 0);
+        $quote = null;
+        if ($request->boolean('record_sale')) {
+            if (($data['price'] ?? 'list') === 'custom') {
+                $amount = round((float) $data['amount'], 2);
+                $quote = ['lines' => [['quantity' => 1, 'unit' => $amount, 'amount' => $amount]],   // description filled below
+                    'subtotal' => $amount, 'discount' => 0, 'tax_rate' => 0, 'tax' => 0, 'total' => $amount, 'rate' => Currency::find($currency)?->effectiveRate() ?? 1];
+            } else {
+                $plan = Plan::findOrFail($data['plan_id']);
+                $country = ! empty($data['organisation_id']) ? Organisation::find($data['organisation_id'])?->country : strtoupper((string) ($data['new_org_country'] ?? ''));
+                $vatId = ! empty($data['organisation_id']) ? Organisation::find($data['organisation_id'])?->vat_id : null;
+                try {
+                    $quote = $pricer->quote($plan, $data['billing_type'], $extra, [], $currency, $country, $vatId);
+                } catch (\InvalidArgumentException $e) {
+                    return back()->withInput()->withErrors(['amount' => $e->getMessage().' Enter a custom total instead.']);
+                }
+            }
+        }
+
         $actor = $this->actor($request);
-        [$license, $key] = DB::transaction(function () use ($data, $actor, $invoices, $request) {
+        [$license, $key] = DB::transaction(function () use ($data, $actor, $invoices, $request, $currency, $extra, $quote) {
             $org = ! empty($data['organisation_id']) ? Organisation::findOrFail($data['organisation_id']) : Organisation::create([
                 'name' => $data['new_org_name'], 'email' => $data['new_org_email'], 'country' => strtoupper($data['new_org_country']),
-                'currency' => strtoupper($data['currency'] ?? 'USD'),
+                'currency' => $currency,
             ]);
             $plan = Plan::findOrFail($data['plan_id']);
-            $amount = $request->boolean('record_sale') ? (float) $data['amount'] : 0.0;
-            $currency = strtoupper($data['currency'] ?? 'USD');
+            $amount = $quote ? (float) $quote['total'] : 0.0;
 
             [$license, $key] = $this->licenses->create($org, $plan, [
-                'billing_type' => $data['billing_type'], 'domains_extra' => (int) ($data['domains_extra'] ?? 0),
+                'billing_type' => $data['billing_type'], 'domains_extra' => $extra,
                 'price_paid' => $amount, 'currency' => $currency, 'pending' => $data['status'] === 'pending', 'notes' => $data['notes'] ?? null,
             ], $actor);
 
-            if ($request->boolean('record_sale')) {
+            if ($quote) {
+                $label = setting('branding.product_name')." {$plan->name}: ".($data['billing_type'] === 'lifetime' ? 'lifetime' : 'annual').' license';
+                $lines = array_map(fn ($l) => ['description' => $l['description'] ?? $label] + $l, $quote['lines']);
                 $paid = $request->boolean('paid');
                 $order = Order::create([
                     'number' => 'ORD-'.now()->format('ymd').'-'.Str::upper(Str::random(5)),
                     'organisation_id' => $org->id, 'plan_id' => $plan->id, 'license_id' => $license->id, 'kind' => 'new_license',
-                    'billing_type' => $data['billing_type'], 'extra_domains' => (int) ($data['domains_extra'] ?? 0),
-                    'lines' => [['description' => setting('branding.product_name')." {$plan->name}: ".($data['billing_type'] === 'lifetime' ? 'lifetime' : 'annual').' license', 'quantity' => 1, 'unit' => $amount, 'amount' => $amount]],
-                    'currency' => $currency, 'exchange_rate' => Currency::find($currency)?->effectiveRate() ?? 1,
-                    'subtotal' => $amount, 'discount' => 0, 'tax_rate' => 0, 'tax' => 0, 'total' => $amount,
+                    'billing_type' => $data['billing_type'], 'extra_domains' => $extra,
+                    'lines' => $lines,
+                    'currency' => $currency, 'exchange_rate' => $quote['rate'] ?? (Currency::find($currency)?->effectiveRate() ?? 1),
+                    'subtotal' => $quote['subtotal'], 'discount' => $quote['discount'], 'tax_rate' => $quote['tax_rate'], 'tax' => $quote['tax'], 'total' => $quote['total'],
                     'gateway' => $data['payment'] ?? 'manual', 'status' => $paid ? 'paid' : 'awaiting_payment', 'paid_at' => $paid ? now() : null,
                     'gateway_payment_id' => $paid ? 'manual-'.now()->format('YmdHis') : null, 'meta' => ['issued_by' => $actor],
                 ]);

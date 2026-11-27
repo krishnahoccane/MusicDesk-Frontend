@@ -3,6 +3,14 @@
 Changes to MusicDesk.tech (sales site, customer portal, site admin and LabelDesk license server).
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.0.3] — 2026-11-27
+
+### Changed
+- Issue license (Admin → Licenses → Create license), *Record a sale*: choose **List price (with the
+  customer's tax)** or **Custom total**, like Create order, instead of typing the amount. List price uses
+  the plan, billing and extra domains with the customer's country tax.
+- Admin → Orders: only one row "⋯" menu is open at a time; opening another closes the first.
+
 ## [2.0.2] — 2026-11-27
 
 ### Added

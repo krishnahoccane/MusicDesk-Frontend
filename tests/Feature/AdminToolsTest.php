@@ -49,6 +49,36 @@ class AdminToolsTest extends TestCase
         $this->get(route('login'))->assertOk()->assertDontSee('Local test accounts');
     }
 
+    public function test_issue_license_records_the_sale_at_list_price_or_a_custom_total(): void
+    {
+        $this->actingAs($this->admin)->get(route('admin.licenses.create'))->assertOk()->assertSee('List price (with the customer’s tax)', false)->assertSee('Custom total');
+        $plan = Plan::where('code', 'business')->firstOrFail();
+
+        // List price: order total = plan list price (no tax for this customer's country) + extra domain.
+        $this->actingAs($this->admin)->post(route('admin.licenses.store'), [
+            'organisation_id' => $this->org->id, 'plan_id' => $plan->id, 'billing_type' => 'annual', 'domains_extra' => 1, 'status' => 'active',
+            'record_sale' => '1', 'price' => 'list', 'currency' => 'USD', 'payment' => 'manual', 'paid' => '1',
+        ])->assertRedirect()->assertSessionHas('new_key');
+        $order = Order::latest('id')->firstOrFail();
+        $expected = $plan->price_annual + $plan->extra_domain_price;
+        $this->assertEqualsWithDelta($expected, (float) $order->total, 0.01);
+        $this->assertSame((float) $order->total, (float) $order->license->price_paid);
+        $this->assertCount(2, $order->lines, 'license + extra domain lines');
+
+        // Custom total is still available.
+        $this->actingAs($this->admin)->post(route('admin.licenses.store'), [
+            'organisation_id' => $this->org->id, 'plan_id' => $plan->id, 'billing_type' => 'annual', 'status' => 'active',
+            'record_sale' => '1', 'price' => 'custom', 'amount' => 777, 'currency' => 'USD', 'payment' => 'manual', 'paid' => '1',
+        ])->assertRedirect();
+        $this->assertSame(777.0, (float) Order::latest('id')->first()->total);
+
+        // Custom total needs the amount; list price does not.
+        $this->actingAs($this->admin)->post(route('admin.licenses.store'), [
+            'organisation_id' => $this->org->id, 'plan_id' => $plan->id, 'billing_type' => 'annual', 'status' => 'active',
+            'record_sale' => '1', 'price' => 'custom', 'currency' => 'USD',
+        ])->assertSessionHasErrors('amount');
+    }
+
     // ------------------------------------------------------------ create order
 
     public function test_admin_creates_a_paid_new_license_order(): void

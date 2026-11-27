@@ -5,13 +5,19 @@ window.Alpine = Alpine;
 Alpine.plugin(collapse);
 
 // Row "⋯" menus inside tables: the menu is teleported to <body> and placed under (or above) the button,
-// so the table's overflow can't clip it.
+// so the table's overflow can't clip it. Only one row menu is open at a time: opening one closes the rest.
+let rowMenuSeq = 0;
 Alpine.data('rowMenu', () => ({
-    m: false, x: 0, y: 0,
+    m: false, x: 0, y: 0, uid: ++rowMenuSeq,
+    init() {
+        // When another row menu opens, close this one.
+        window.addEventListener('rowmenu-open', (e) => { if (e.detail !== this.uid) this.m = false; });
+    },
     toggle(e) {
         const r = e.currentTarget.getBoundingClientRect();
         this.m = !this.m;
         if (!this.m) return;
+        window.dispatchEvent(new CustomEvent('rowmenu-open', { detail: this.uid }));
         this.x = Math.max(8, Math.min(r.right - 224, window.innerWidth - 232));
         this.y = r.bottom + 4;
         this.$nextTick(() => {

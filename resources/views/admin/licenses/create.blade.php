@@ -2,7 +2,7 @@
     <x-slot:eyebrow><a href="{{ route('admin.licenses') }}" class="hover:text-white">Admin · Licenses</a></x-slot:eyebrow>
 
     <form method="POST" action="{{ route('admin.licenses.store') }}" class="grid max-w-4xl gap-4"
-          x-data="{ existing: @js(old('organisation_id', $selected) ? true : ($organisations->isNotEmpty())), sale: {{ old('record_sale') ? 'true' : 'false' }} }">
+          x-data="{ existing: @js(old('organisation_id', $selected) ? true : ($organisations->isNotEmpty())), sale: {{ old('record_sale') ? 'true' : 'false' }}, price: @js(old('price', 'list')) }">
         @csrf
         @if ($alert)
             <input type="hidden" name="alert_id" value="{{ $alert->id }}">
@@ -52,11 +52,21 @@
                 <input type="checkbox" name="record_sale" value="1" x-model="sale" class="mt-0.5 size-4 accent-volt-500">
                 <span><span class="block text-ink-100">Record a sale for this license</span><span class="text-xs text-ink-500">Creates an order and an invoice. Leave unticked for comps and replacements.</span></span>
             </label>
-            <div x-show="sale" x-cloak class="grid gap-4 sm:grid-cols-4">
-                <div class="sm:col-span-2"><label class="label" for="amount">Amount (incl. any tax)</label><input id="amount" name="amount" type="number" step="0.01" min="0" value="{{ old('amount') }}" class="input font-mono"></div>
-                <div><label class="label" for="currency">Currency</label><select id="currency" name="currency" class="input">@foreach ($currencies as $c)<option @selected(old('currency', 'USD') === $c)>{{ $c }}</option>@endforeach</select></div>
-                <div><label class="label" for="payment">Payment</label><select id="payment" name="payment" class="input"><option value="bank_transfer">Bank transfer</option><option value="manual">Other / manual</option></select></div>
-                <label class="flex items-center gap-2 text-sm text-ink-300 sm:col-span-4"><input type="hidden" name="paid" value="0"><input type="checkbox" name="paid" value="1" class="size-4 accent-volt-500" @checked(old('paid', '1') === '1')> Already paid (otherwise the invoice is issued as due)</label>
+            <div x-show="sale" x-cloak class="space-y-4">
+                <div class="flex gap-2">
+                    @foreach (['list' => 'List price (with the customer’s tax)', 'custom' => 'Custom total'] as $pk => $pl)
+                        <label class="flex-1 cursor-pointer rounded-xl border px-3 py-2 text-center text-sm transition" :class="price === '{{ $pk }}' ? 'border-volt-500/60 bg-volt-500/10 text-white' : 'border-white/[0.08] text-ink-400'">
+                            <input type="radio" name="price" value="{{ $pk }}" x-model="price" class="sr-only">{{ $pl }}</label>
+                    @endforeach
+                </div>
+                <div class="grid gap-4 sm:grid-cols-4">
+                    <div class="sm:col-span-2" x-show="price === 'custom'"><label class="label" for="amount">Total (incl. any tax)</label><input id="amount" name="amount" type="number" step="0.01" min="0" value="{{ old('amount') }}" class="input font-mono" :required="price === 'custom'">
+                        @error('amount')<p class="mt-1 text-xs text-coral-400">{{ $message }}</p>@enderror</div>
+                    <div class="sm:col-span-2" x-show="price === 'list'"><p class="rounded-xl border hairline bg-white/[0.02] px-3 py-2 text-xs text-ink-400">The plan’s list price for the chosen billing and extra domains, plus the customer’s tax. Change the plan, billing or domains above to adjust it.</p></div>
+                    <div><label class="label" for="currency">Currency</label><select id="currency" name="currency" class="input">@foreach ($currencies as $c)<option @selected(old('currency', 'USD') === $c)>{{ $c }}</option>@endforeach</select></div>
+                    <div><label class="label" for="payment">Payment</label><select id="payment" name="payment" class="input"><option value="bank_transfer">Bank transfer</option><option value="manual">Other / manual</option></select></div>
+                </div>
+                <label class="flex items-center gap-2 text-sm text-ink-300"><input type="hidden" name="paid" value="0"><input type="checkbox" name="paid" value="1" class="size-4 accent-volt-500" @checked(old('paid', '1') === '1')> Already paid (otherwise the invoice is issued as due)</label>
             </div>
         </section>
 
