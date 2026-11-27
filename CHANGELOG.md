@@ -3,6 +3,29 @@
 Changes to MusicDesk.tech (sales site, customer portal, site admin and LabelDesk license server).
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.0.2] — 2026-11-27
+
+### Added
+- **Create order** in Admin → Orders: for phone or email sales of any kind (new license, renewal, updates
+  renewal, extra domains, upgrade, switch to lifetime, add-on). Priced at list price with the customer's tax,
+  or a custom total. *Paid already* applies it at once (license created or changed, invoice paid); otherwise
+  it waits for payment like a bank transfer.
+- **Sign in as customer** (icon on Admin → Customers): opens the customer portal as the organisation's owner,
+  with a *Return to admin* banner. New team permission *Sign in as customers*.
+- **Sign in to a customer's LabelDesk as Super Admin** (Licenses › Status, for every live or failing domain,
+  and each domain on a license or add-on page). Opens the site in a new tab with a signed, single-use token
+  valid 2 minutes; recorded in the license history. Needs LabelDesk 4.3.4 (see
+  `docs/labeldesk-changes-2.0.2.md`). New team permission *Sign in to customer sites*.
+- Licenses › Status: add-on licenses show an *Add-on* badge and the add-on's name.
+
+### Changed
+- Payment gateways page is a single list: one line per gateway with its status, mode and currencies, an
+  on/off switch that saves at once, and the keys, mode and currencies when you click it.
+- The "⋯" menu on Admin → Orders opens on top of the page instead of inside the table, so it is never cut off.
+
+### Removed
+- "Local test accounts are listed in the README." from the sign-in page.
+
 ## [2.0.1] — 2026-11-26
 
 ### Added

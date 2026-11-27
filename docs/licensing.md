@@ -71,6 +71,8 @@ Refunding an order (`/admin/orders`) revokes the license if it was a new-license
 | `/admin/support` | Support tickets: needs reply / awaiting customer / resolved, priority, assignee, reply or internal note, attachments. Customers are emailed each public reply |
 | `/admin/customers` | Organisations with team, licenses, orders, invoices and revenue; edit billing details and internal notes |
 | `/admin/plans` | Plans, **licensed add-ons** (prices, included plans), services and coupons |
+| Create order | Admin → Orders → *Create order*: any order kind for a customer, list price or custom total, paid now (applied at once) or awaiting payment |
+| Support sign-in | *Sign in as customer* (Customers, permission **Sign in as customers**) and *Sign in as admin* to a LabelDesk install (Status / license pages, permission **Sign in to customer sites**): `POST /admin/remote-login` signs a 2-minute single-use `admin_sso` token for the domain and the browser POSTs it to `https://<domain>/musicdesk/sso`. See `docs/labeldesk-changes-2.0.2.md` |
 | Delete | Orders (optionally with invoices), licenses (with add-on keys, domains, history) and customers (everything they own) can be deleted for good by team members with **Delete records** plus the area's permission, after typing the number or name |
 | `/admin/releases` | Publish versions (of LabelDesk or of an add-on) with changelog, requirements, **Minimum PHP** (and for add-ons Minimum LabelDesk) and the private `.zip` package (SHA-256 recorded). Packages are checked, and signed if needed, on upload; each release shows *Signed* and its number of over-the-air downloads |
 

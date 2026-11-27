@@ -16,7 +16,7 @@ return [
     'name' => env('APP_NAME', 'Laravel'),
 
     // MusicDesk.tech release (CHANGELOG.md).
-    'version' => '2.0.1',
+    'version' => '2.0.2',
 
     /*
     | Web installer: null = installed once storage/app/installed.json exists.
