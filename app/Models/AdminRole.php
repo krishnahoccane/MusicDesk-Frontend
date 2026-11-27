@@ -19,6 +19,8 @@ class AdminRole extends Model
         'storefront' => ['Storefront', 'Branding, homepage text, pricing plans, legal pages, contact'],
         'payments' => ['Payments & settings', 'Gateways, currencies, invoicing and localisation'],
         'team' => ['Team & roles', 'Invite, change and remove team members; edit roles'],
+        'impersonate' => ['Sign in as customers', 'Open the customer portal as a customer (Customers → sign-in icon)'],
+        'remote_login' => ['Sign in to customer sites', 'Open a customer’s LabelDesk install as its Super Admin (Licenses and Status)'],
         'delete' => ['Delete records', 'Permanently delete orders, licenses and customers (with the area’s own permission)'],
     ];
 

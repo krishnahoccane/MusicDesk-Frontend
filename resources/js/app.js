@@ -4,6 +4,23 @@ import collapse from '@alpinejs/collapse';
 window.Alpine = Alpine;
 Alpine.plugin(collapse);
 
+// Row "⋯" menus inside tables: the menu is teleported to <body> and placed under (or above) the button,
+// so the table's overflow can't clip it.
+Alpine.data('rowMenu', () => ({
+    m: false, x: 0, y: 0,
+    toggle(e) {
+        const r = e.currentTarget.getBoundingClientRect();
+        this.m = !this.m;
+        if (!this.m) return;
+        this.x = Math.max(8, Math.min(r.right - 224, window.innerWidth - 232));
+        this.y = r.bottom + 4;
+        this.$nextTick(() => {
+            const h = this.$refs.menu?.offsetHeight ?? 0;
+            if (this.y + h > window.innerHeight - 8) this.y = Math.max(8, r.top - h - 4);
+        });
+    },
+}));
+
 // Browser time zone → cookie. The server prefers the IP-detected zone and falls back to this
 // (e.g. on localhost). All dates are stored in UTC and converted for display only.
 try {

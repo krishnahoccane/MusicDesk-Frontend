@@ -117,7 +117,13 @@ Route::middleware('auth')->prefix('dashboard')->name('dashboard')->group(functio
 | and storefront settings.
 |--------------------------------------------------------------------------
 */
+// Back from "Sign in as customer" (the session is the customer's at that point).
+Route::post('/impersonation/stop', [Admin\ImpersonationController::class, 'stop'])->middleware('auth')->name('impersonation.stop');
+
 Route::middleware(['auth', 'admin'])->prefix('admin')->name('admin.')->group(function () {
+    // Sign in to a customer's LabelDesk install as its Super Admin (any domain, also failing ones).
+    Route::post('/remote-login', Admin\RemoteLoginController::class)->middleware(['admin.can:remote_login', 'throttle:20,1'])->name('remote-login');
+
     Route::get('/', [Admin\AdminController::class, 'dashboard'])->name('dashboard');
 
     // Each area needs its permission (AdminRole::PERMISSIONS). Settings groups map to
@@ -152,10 +158,12 @@ Route::middleware(['auth', 'admin'])->prefix('admin')->name('admin.')->group(fun
 
         Route::get('/gateways', [Admin\GatewayController::class, 'index'])->name('gateways');
         Route::post('/gateways/{code}', [Admin\GatewayController::class, 'update'])->name('gateways.update');
+        Route::post('/gateways/{code}/toggle', [Admin\GatewayController::class, 'toggle'])->name('gateways.toggle');
     });
 
     Route::middleware('admin.can:sales')->group(function () {
         Route::get('/orders', [Admin\OrderAdminController::class, 'orders'])->name('orders');
+        Route::post('/orders', [Admin\OrderAdminController::class, 'store'])->name('orders.store');
         Route::post('/orders/{order}/paid', [Admin\OrderAdminController::class, 'markPaid'])->name('orders.paid');
         Route::post('/orders/{order}/refund', [Admin\OrderAdminController::class, 'refund'])->name('orders.refund');
         Route::delete('/orders/{order}', [Admin\DeleteController::class, 'order'])->middleware('admin.can:delete')->name('orders.destroy');
@@ -191,6 +199,7 @@ Route::middleware(['auth', 'admin'])->prefix('admin')->name('admin.')->group(fun
         Route::get('/customers/{organisation}', [Admin\CustomerAdminController::class, 'show'])->name('customers.show');
         Route::put('/customers/{organisation}', [Admin\CustomerAdminController::class, 'update'])->name('customers.update');
         Route::delete('/customers/{organisation}', [Admin\DeleteController::class, 'customer'])->middleware('admin.can:delete')->name('customers.destroy');
+        Route::post('/customers/{organisation}/impersonate', [Admin\ImpersonationController::class, 'start'])->middleware('admin.can:impersonate')->name('customers.impersonate');
     });
 
     Route::middleware('admin.can:support')->group(function () {

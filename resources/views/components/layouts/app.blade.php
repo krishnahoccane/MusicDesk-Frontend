@@ -178,6 +178,12 @@
             </div>
         </header>
 
+        @if (session()->has(\App\Http\Controllers\Admin\ImpersonationController::SESSION))
+            <div class="flex flex-wrap items-center justify-center gap-3 border-b border-amber-glow/30 bg-amber-glow/10 px-4 py-2 text-sm text-ink-100">
+                <x-icon name="eye" class="size-4 text-amber-glow"/> You’re signed in as <b class="text-white">{{ auth()->user()?->name }}</b> ({{ auth()->user()?->organisation?->name }}) from the admin.
+                <form method="POST" action="{{ route('impersonation.stop') }}">@csrf<button class="btn btn-sm bg-amber-glow text-ink-950 hover:brightness-110">Return to admin</button></form>
+            </div>
+        @endif
         <main class="px-4 py-8 sm:px-6 lg:px-8">
             <div class="mx-auto max-w-[1400px]">
                 <div class="mb-8 flex flex-col justify-between gap-4 sm:flex-row sm:items-end">

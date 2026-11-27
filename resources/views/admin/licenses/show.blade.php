@@ -124,12 +124,14 @@
                                     <td class="font-mono text-xs text-ink-500">{{ $a->ip ?? '—' }}{{ $a->php_version ? ' · PHP '.$a->php_version : '' }}</td>
                                     <td class="text-ink-400">{{ $a->last_check_in_at ? local_time($a->last_check_in_at)->diffForHumans() : 'never' }}</td>
                                     <td class="text-right">
-                                        @if ($a->status !== 'deactivated')
-                                            <div class="flex justify-end gap-1">
+                                        <div class="flex justify-end gap-1">
+                                            {{-- Also for deactivated / failing domains: LabelDesk verifies the sign-in token offline. --}}
+                                            @include('admin.partials.remote-login-button', ['domain' => $a->domain, 'license' => $license, 'compact' => true])
+                                            @if ($a->status !== 'deactivated')
                                                 <form method="POST" action="{{ route('admin.licenses.domains.check-in', [$license, $a]) }}">@csrf<button class="btn btn-ghost btn-sm" title="Ask the install to check in now">Check-in</button></form>
                                                 <form method="POST" action="{{ route('admin.licenses.domains.deactivate', [$license, $a]) }}" onsubmit="return confirm('Deactivate {{ $a->domain }}? It stops working at its next check-in.')">@csrf @method('DELETE')<button class="btn btn-danger btn-sm">Deactivate</button></form>
-                                            </div>
-                                        @endif
+                                            @endif
+                                        </div>
                                     </td>
                                 </tr>
                             @empty

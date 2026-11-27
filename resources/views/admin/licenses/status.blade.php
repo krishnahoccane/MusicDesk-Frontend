@@ -46,7 +46,9 @@
                                 <div class="font-mono text-[13px] text-white">{{ $a->domain }}</div>
                                 <div class="mt-0.5 text-[11px] {{ $known ? 'text-ink-400' : 'text-amber-glow' }}">
                                     @if ($known)
-                                        Licensed: <a href="{{ route('admin.licenses.show', $known->license) }}" class="text-volt-300 hover:text-white">{{ $known->license->number }}</a> · {{ $known->license->organisation->name }}
+                                        Licensed: <a href="{{ route('admin.licenses.show', $known->license) }}" class="text-volt-300 hover:text-white">{{ $known->license->number }}</a>
+                                        @if ($known->license->isAddon())<span class="badge badge-flare !text-[10px]">Add-on</span> {{ $known->license->addon?->name }}@endif
+                                        · {{ $known->license->organisation->name }}
                                     @else
                                         Not on any license
                                     @endif
@@ -56,7 +58,7 @@
                                 <div class="text-ink-100">{{ LicenseAlert::reasonLabel($a->last_reason) }}</div>
                                 <div class="mt-0.5 text-[11px] text-ink-500">
                                     {{ $a->source === 'server' ? 'Refused by license server' : 'Reported by install' }}
-                                    @if ($a->license && ! $known) · key of <a href="{{ route('admin.licenses.show', $a->license) }}" class="text-volt-300 hover:text-white">{{ $a->license->number }}</a>@endif
+                                    @if ($a->license && ! $known) · key of <a href="{{ route('admin.licenses.show', $a->license) }}" class="text-volt-300 hover:text-white">{{ $a->license->number }}</a>@if ($a->license->isAddon()) <span class="badge badge-flare !text-[10px]">Add-on</span> {{ $a->license->addon?->name }}@endif @endif
                                     @if (count($a->reasons ?? []) > 1) · {{ count($a->reasons) }} kinds of failure @endif
                                 </div>
                                 @if ($a->message)<div class="mt-1 truncate text-[11px] text-ink-500" title="{{ $a->message }}">“{{ $a->message }}”</div>@endif
@@ -72,6 +74,7 @@
                             </td>
                             <td class="text-right">
                                 <div class="flex justify-end gap-1.5" x-data>
+                                    @include('admin.partials.remote-login-button', ['domain' => $a->domain, 'license' => $known?->license ?? $a->license, 'compact' => true])
                                     @if ($a->status === LicenseAlert::BLOCKED)
                                         <form method="POST" action="{{ route('admin.licenses.alerts.update', $a) }}" onsubmit="return confirm('Unblock {{ $a->domain }}? It will be able to activate again with a valid key.')">@csrf @method('PUT')<input type="hidden" name="status" value="dismissed"><button class="btn btn-outline btn-sm">Unblock</button></form>
                                     @else
@@ -116,7 +119,7 @@
         </div>
         <div class="overflow-x-auto">
             <table class="table">
-                <thead><tr><th>Domain</th><th>License</th><th>Customer</th><th>Version</th><th>Last check-in</th><th>Status</th></tr></thead>
+                <thead><tr><th>Domain</th><th>License</th><th>Customer</th><th>Version</th><th>Last check-in</th><th>Status</th><th></th></tr></thead>
                 <tbody>
                     @forelse ($domains as $d)
                         @php
@@ -132,15 +135,17 @@
                                 <div class="font-mono text-[13px] text-white">{{ $d->domain }}</div>
                                 <div class="text-[11px] text-ink-500">{{ ucfirst($d->environment) }}{{ $d->maskedIp() ? ' · '.$d->maskedIp() : '' }}</div>
                             </td>
-                            <td><a href="{{ route('admin.licenses.show', $d->license) }}" class="font-mono text-xs text-white hover:text-volt-300">{{ $d->license->number }}</a>
+                            <td><div class="flex flex-wrap items-center gap-1.5"><a href="{{ route('admin.licenses.show', $d->license) }}" class="font-mono text-xs text-white hover:text-volt-300">{{ $d->license->number }}</a>
+                                    @if ($d->license->isAddon())<span class="badge badge-flare !text-[10px]">Add-on</span><span class="text-xs text-ink-200">{{ $d->license->addon?->name }}</span>@endif</div>
                                 <div class="text-[11px] text-ink-500">{{ $d->license->plan->name }} · <span class="{{ in_array($d->license->displayStatus(), ['suspended', 'revoked', 'expired'], true) ? 'text-coral-400' : '' }}">{{ $d->license->displayStatus() }}</span></div></td>
                             <td><a href="{{ route('admin.customers.show', $d->license->organisation) }}" class="text-ink-100 hover:text-white">{{ $d->license->organisation->name }}</a></td>
                             <td class="font-mono text-ink-300">{{ $d->version ? 'v'.$d->version : '—' }}</td>
                             <td class="whitespace-nowrap text-ink-300">{{ $d->last_check_in_at?->diffForHumans() ?? 'Never' }}</td>
                             <td><span class="badge badge-dot {{ $badge }}">{{ $label }}</span></td>
+                            <td class="text-right">@include('admin.partials.remote-login-button', ['domain' => $d->domain, 'license' => $d->license, 'compact' => true])</td>
                         </tr>
                     @empty
-                        <tr><td colspan="6" class="py-12 text-center text-ink-500">No domains match.</td></tr>
+                        <tr><td colspan="7" class="py-12 text-center text-ink-500">No domains match.</td></tr>
                     @endforelse
                 </tbody>
             </table>

@@ -23,9 +23,15 @@ class LicenseToken
     /** @param  array<string, mixed>  $claims */
     public function issue(array $claims, int $ttlDays = self::TTL_DAYS): string
     {
+        return $this->issueFor($claims, $ttlDays * 86400);
+    }
+
+    /** Same, with the lifetime in seconds (short-lived tokens such as admin sign-in to a site). */
+    public function issueFor(array $claims, int $ttlSeconds): string
+    {
         $now = time();
         $header = ['alg' => 'EdDSA', 'typ' => 'JWT', 'kid' => $this->kid()];
-        $payload = $claims + ['iss' => rtrim((string) config('app.url'), '/'), 'iat' => $now, 'exp' => $now + $ttlDays * 86400];
+        $payload = $claims + ['iss' => rtrim((string) config('app.url'), '/'), 'iat' => $now, 'exp' => $now + $ttlSeconds];
 
         $signingInput = self::b64(json_encode($header)).'.'.self::b64(json_encode($payload, JSON_UNESCAPED_SLASHES));
 

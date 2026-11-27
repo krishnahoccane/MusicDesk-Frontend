@@ -31,5 +31,5 @@
         <button class="btn btn-primary w-full !py-3">Sign in</button>
     </form>
     <p class="mt-6 text-center text-sm text-ink-400">No account yet? <a href="{{ route('pricing') }}" class="text-white hover:text-volt-300">Buy a license</a> or <a href="{{ route('register') }}" class="text-white hover:text-volt-300">create an account</a></p>
-    <p class="mt-3 text-center text-xs text-ink-500">Local test accounts are listed in the README.</p>
+    
 </x-layouts.auth>

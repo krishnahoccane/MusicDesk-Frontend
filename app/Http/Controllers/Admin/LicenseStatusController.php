@@ -24,16 +24,16 @@ class LicenseStatusController extends Controller
         $state = $request->query('alerts', 'open');
         $now = now();
 
-        $alerts = LicenseAlert::query()->with('license.organisation')->search($term)
+        $alerts = LicenseAlert::query()->with('license.organisation', 'license.addon')->search($term)
             ->when($state !== 'all', fn ($q) => $q->where('status', in_array($state, [LicenseAlert::OPEN, LicenseAlert::BLOCKED, LicenseAlert::ISSUED, LicenseAlert::DISMISSED], true) ? $state : LicenseAlert::OPEN))
             ->latest('last_seen_at')->paginate(15, ['*'], 'apage')->withQueryString();
 
         // Which alert domains are live on a license (so the row offers "Open license" instead of "Issue license").
-        $live = LicenseActivation::query()->with('license.organisation')->whereIn('domain', $alerts->pluck('domain'))
+        $live = LicenseActivation::query()->with('license.organisation', 'license.addon')->whereIn('domain', $alerts->pluck('domain'))
             ->where('status', '!=', LicenseActivation::DEACTIVATED)->get()->keyBy('domain');
 
         $env = $request->query('env');
-        $domains = LicenseActivation::query()->with('license.organisation', 'license.plan')
+        $domains = LicenseActivation::query()->with('license.organisation', 'license.plan', 'license.addon')
             ->where('status', '!=', LicenseActivation::DEACTIVATED)
             ->when($term !== '', fn ($q) => $q->where(fn ($w) => $w->where('domain', 'like', "%{$term}%")
                 ->orWhereHas('license', fn ($l) => $l->where('number', 'like', "%{$term}%")->orWhereHas('organisation', fn ($o) => $o->where('name', 'like', "%{$term}%")))))

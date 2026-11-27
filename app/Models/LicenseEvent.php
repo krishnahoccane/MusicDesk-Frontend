@@ -26,6 +26,7 @@ class LicenseEvent extends Model
     {
         return match ($this->event) {
             'created' => 'License created',
+            'remote_login' => 'MusicDesk support signed in to '.($this->details['domain'] ?? '').' as Super Admin',
             'trial_started' => 'Free trial started ('.($this->details['days'] ?? '').' days'.(isset($this->details['limits']) ? ': '.$this->details['limits'] : '').')',
             'trial_converted' => 'Trial converted to a paid '.($this->details['billing_type'] ?? '').' license'.(isset($this->details['plan']) ? ' ('.ucfirst($this->details['plan']).')' : ''),
             'trial_ended' => 'Free trial ended: license suspended',
